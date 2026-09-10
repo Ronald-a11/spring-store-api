@@ -13,3 +13,14 @@ stripe:
   # Fix beyond the course: empty defaults so the app starts without Stripe keys (StripeConfig warns at startup).
   secretKey: ${STRIPE_SECRET_KEY:}
   webhookSecretKey: ${STRIPE_WEBHOOK_SECRET_KEY:}
+# Beyond the course (API docs): Swagger UI settings — the Authorize token survives a reload, request
+# timings are shown, operations are sorted by HTTP method, "Try it out" is open by default, and
+# responses are documented as application/json unless an operation says otherwise.
+springdoc:
+  default-produces-media-type: application/json
+  swagger-ui:
+    persist-authorization: true
+    display-request-duration: true
+    operations-sorter: method
+    doc-expansion: list
+    try-it-out-enabled: true
