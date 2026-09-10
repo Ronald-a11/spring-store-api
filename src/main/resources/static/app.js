@@ -2,7 +2,7 @@
  * Tyrone Grocery Shop - a small storefront for the Tyrone Grocery Shop API.
  *
  * Vanilla ES2020, no framework, no build step. The page talks to the API on the same
- * origin (GET /products, /carts, /users, /auth/login, /checkout, /orders, admin writes).
+ * origin (GET /products, /categories, /carts, /users, /auth/login, /checkout, /orders, admin writes).
  *
  * Ground rules:
  *  - Every piece of API data reaches the DOM through textContent (the el() helper below),
@@ -17,7 +17,8 @@
 // Constants
 // ---------------------------------------------------------------------------
 
-// GET /products only returns categoryId. The names come from the seed migration
+// GET /products only returns categoryId. The names come from GET /categories (see loadProducts); this map is the
+// fallback when that request fails, copied from the seed migration
 // src/main/resources/db/migration/V5__populate_database.sql (ids are assigned in insert order).
 const CATEGORY_NAMES = {
   1: 'Produce',
@@ -28,6 +29,17 @@ const CATEGORY_NAMES = {
   6: 'Beverages',
 };
 
+// Fix beyond the course: F2 one decorative emoji per category name (aria-hidden wherever it is rendered).
+const CATEGORY_ICONS = {
+  'Produce': '🥦',
+  'Dairy': '🥛',
+  'Bakery': '🍞',
+  'Meat & Seafood': '🥩',
+  'Pantry Staples': '🍚',
+  'Beverages': '🧃',
+};
+const DEFAULT_CATEGORY_ICON = '🛒';
+
 const STORAGE_TOKEN = 'store.token';
 const STORAGE_CART = 'store.cartId';
 const SESSION_EXPIRED = 'Session expired, please log in again.';
@@ -35,11 +47,21 @@ const SESSION_EXPIRED = 'Session expired, please log in again.';
 // key) and deletes the order first; the message below is shown for that body only, never for any other 500.
 const PAYMENT_UNAVAILABLE = 'The payment provider could not create a checkout session (Stripe is not configured on this demo) — the order was not created.';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ORDER_ID_RE = /^\d{1,19}$/; // an order id from the checkout return URL: digits only (a Java long), nothing else is shown
 const WAKE_UP_AFTER_MS = 2000; // show "Waking up the server" if the first request takes longer than this
+const QTY_DEBOUNCE_MS = 300;   // typing in the cart quantity box waits this long before PUT /carts/{id}/items/{productId}
+const QTY_MAX = 1000;          // UpdateCartItemRequest: @Min(1) @Max(1000)
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 const fmtMoney = (value) => money.format(Number(value) || 0);
-const categoryName = (id) => CATEGORY_NAMES[id] || `Category ${id}`;
+// Fix beyond the course: F1 the name comes from the /categories list when it loaded, else from the seed map above.
+function categoryName(id) {
+  const known = state.categories && state.categories.find((c) => c.id === id);
+  return known ? known.name : (CATEGORY_NAMES[id] || `Category ${id}`);
+}
+const categoryIcon = (id) => CATEGORY_ICONS[categoryName(id)] || DEFAULT_CATEGORY_ICON;
+/** Decorative icon node: hidden from assistive technology, the name next to it carries the meaning. */
+const iconNode = (icon) => el('span', { class: 'icon', 'aria-hidden': 'true' }, icon);
 
 // ---------------------------------------------------------------------------
 // State
@@ -47,6 +69,8 @@ const categoryName = (id) => CATEGORY_NAMES[id] || `Category ${id}`;
 
 const state = {
   products: [],
+  productsLoaded: false, // true once GET /products answered: an empty catalogue then reads "No products yet"
+  categories: null,      // [{id, name}] from GET /categories, or null when that request failed (seed map fallback)
   search: '',
   categoryId: null, // null = all categories
   cartId: null,     // UUID from POST /carts, or null until the first "Add to cart"
@@ -54,6 +78,7 @@ const state = {
   token: null,      // access token (JWT) or null
   user: null,       // {id, name, email, role} decoded from the token, display only
   orders: [],
+  highlightOrderId: null, // the order named by /checkout-success?orderId=<n>, highlighted in "My orders"
 };
 
 let sessionTimer = null; // fires logout(true) when the token's exp passes
@@ -243,6 +268,8 @@ function renderAuth() {
   $('admin-section').hidden = !(loggedIn && state.user.role === 'ADMIN');
 }
 
+let dialogOpener = null; // the element that opened the auth dialog; focus goes back to it when the dialog closes
+
 /** Opens the auth dialog on the "login" or "register" form. */
 function openAuthDialog(which) {
   $('login-form').hidden = which !== 'login';
@@ -251,7 +278,10 @@ function openAuthDialog(which) {
   $('register-error').textContent = '';
   const dialog = $('auth-dialog');
   dialog.setAttribute('aria-labelledby', `${which}-heading`); // the visible form's <h2> names the dialog
-  if (!dialog.open) dialog.showModal();
+  if (!dialog.open) {
+    dialogOpener = document.activeElement; // remembered before showModal() moves the focus into the dialog
+    dialog.showModal();                    // Escape closes it (the dialog's native "cancel" behaviour)
+  }
   const first = $(`${which}-form`).querySelector('input');
   if (first) first.focus();
 }
@@ -263,6 +293,18 @@ function wireAuthDialog() {
   $('logout-btn').addEventListener('click', () => { logout(); toast('You are logged out.'); });
   dialog.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => dialog.close()));
   dialog.querySelectorAll('[data-switch]').forEach((b) => b.addEventListener('click', () => openAuthDialog(b.dataset.switch)));
+  // Fix beyond the course: F7 Escape closes the dialog explicitly as well (the native "cancel" already does in most
+  // browsers, but Chrome can swallow it for a dialog opened without user activation), and focus returns to the button
+  // that opened it (Cancel, Escape or a successful login all end here); after a login that button is hidden, so the
+  // "Log out" button in the user chip takes it.
+  dialog.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && dialog.open) { event.preventDefault(); dialog.close(); }
+  });
+  dialog.addEventListener('close', () => {
+    const target = dialogOpener && dialogOpener.isConnected && !dialogOpener.hidden ? dialogOpener : $('logout-btn');
+    dialogOpener = null;
+    if (target && !target.hidden && typeof target.focus === 'function') target.focus();
+  });
 
   $('login-form').addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -319,37 +361,70 @@ function showProductsStatus(message, ...extra) {
   status.hidden = false;
 }
 
+/** GET /categories -> [{id, name}] (ordered by id); anything malformed is dropped, a failed request leaves null. */
+async function loadCategories() {
+  try {
+    const list = await api('GET', '/categories');
+    return Array.isArray(list)
+      ? list.filter((c) => c && Number.isInteger(Number(c.id)) && typeof c.name === 'string')
+        .map((c) => ({ id: Number(c.id), name: c.name }))
+      : null;
+  } catch {
+    return null; // the seed map in CATEGORY_NAMES names the categories instead
+  }
+}
+
 async function loadProducts() {
   showProductsStatus('Loading products…');
   // Free hosting puts an idle server to sleep; the first request can take a while.
   const wakeTimer = setTimeout(() => showProductsStatus('Waking up the server… this can take up to a minute on a sleeping demo host.'), WAKE_UP_AFTER_MS);
+  // Fix beyond the course: F1 the category list is fetched in parallel with the catalogue; it never fails the page.
+  const categories = loadCategories();
   try {
     state.products = await api('GET', '/products');
+    state.productsLoaded = true;
+    state.categories = await categories;
     $('products-status').hidden = true;
     renderCategories();
     renderProducts();
   } catch (err) {
+    // Fix beyond the course: F6 an unreachable API (or a non-2xx) on the first load leaves a Retry button, not a blank page.
     const retry = el('button', { type: 'button', class: 'secondary small', onclick: () => loadProducts() }, 'Retry');
-    showProductsStatus(`Could not load products: ${err.message}`, retry);
+    const reason = err instanceof ApiError ? err.message : 'the server could not be reached.';
+    showProductsStatus(`Could not load products: ${reason}`, retry);
   } finally {
     clearTimeout(wakeTimer);
   }
 }
 
+/**
+ * The categories to offer: the /categories list when it loaded (every category, in id order), plus any id the
+ * catalogue uses that the list does not know; without the list, the ids present in the catalogue named by the seed map.
+ */
+function categoryList() {
+  const list = state.categories ? state.categories.map((c) => ({ id: c.id, name: c.name })) : [];
+  for (const id of new Set(state.products.map((p) => p.categoryId))) {
+    if (!list.some((c) => c.id === id)) list.push({ id, name: categoryName(id) });
+  }
+  return list.sort((a, b) => a.id - b.id);
+}
+
 function renderCategories() {
-  const ids = [...new Set(state.products.map((p) => p.categoryId))].sort((a, b) => a - b);
+  // Fix beyond the course: F1/F2 chips come from GET /categories (label = name) with the category's icon.
+  const categories = categoryList();
+  const ids = categories.map((c) => c.id);
   // The selected category can disappear (an admin deleted its last product): fall back to "All".
   if (state.categoryId !== null && !ids.includes(state.categoryId)) state.categoryId = null;
-  const button = (id, label) => el('button', {
+  const button = (id, ...label) => el('button', {
     type: 'button',
     class: 'chip',
     'aria-pressed': String(state.categoryId === id),
     onclick: () => { state.categoryId = id; renderCategories(); renderProducts(); },
-  }, label);
-  $('categories').replaceChildren(button(null, 'All'), ...ids.map((id) => button(id, categoryName(id))));
+  }, ...label);
+  $('categories').replaceChildren(button(null, 'All'), ...categories.map((c) => button(c.id, iconNode(categoryIcon(c.id)), ' ', c.name)));
 
-  // The admin form's category select offers every seeded category plus any id seen in the catalogue.
-  const selectIds = [...new Set([...Object.keys(CATEGORY_NAMES).map(Number), ...ids])].sort((a, b) => a - b);
+  // The admin form's category select offers the same list; without /categories it also offers every seeded id.
+  const selectIds = [...new Set([...ids, ...(state.categories ? [] : Object.keys(CATEGORY_NAMES).map(Number))])].sort((a, b) => a - b);
   $('admin-category').replaceChildren(...selectIds.map((id) => el('option', { value: id }, `${id} – ${categoryName(id)}`)));
 }
 
@@ -359,11 +434,20 @@ function visibleProducts() {
     && (!state.search || String(p.name).toLowerCase().includes(state.search)));
 }
 
+// Fix beyond the course: F7 "10 products" in the toolbar, "3 of 10 products" while a search or a category filters.
+function renderProductCount(visible, total) {
+  const noun = (n) => `${n} ${n === 1 ? 'product' : 'products'}`;
+  $('product-count').textContent = !state.productsLoaded ? '' : visible === total ? noun(total) : `${visible} of ${noun(total)}`;
+}
+
 function renderProducts() {
   const grid = $('product-grid');
   const products = visibleProducts();
+  renderProductCount(products.length, state.products.length);
   if (!products.length) {
-    grid.replaceChildren(el('p', { class: 'muted' }, state.products.length ? 'No products match.' : ''));
+    // Fix beyond the course: F6 an empty catalogue says so; before the first answer the status line speaks instead.
+    const message = state.products.length ? 'No products match.' : state.productsLoaded ? 'No products yet.' : '';
+    grid.replaceChildren(el('p', { class: 'muted empty' }, message));
     return;
   }
   const isAdmin = state.user && state.user.role === 'ADMIN';
@@ -371,7 +455,7 @@ function renderProducts() {
     const addButton = el('button', { type: 'button' }, 'Add to cart');
     addButton.addEventListener('click', () => busy(addButton, () => addToCart(product).catch(showError)));
     const card = el('article', { class: 'card' },
-      el('span', { class: 'category' }, categoryName(product.categoryId)),
+      el('span', { class: 'category' }, iconNode(categoryIcon(product.categoryId)), ' ', categoryName(product.categoryId)),
       el('h3', {}, product.name),
       el('p', { class: 'desc' }, product.description),
       el('div', { class: 'card-footer' }, el('span', { class: 'price' }, fmtMoney(product.price)), addButton));
@@ -490,8 +574,44 @@ async function addToCart(product) {
 
 async function setQuantity(productId, quantity) {
   if (quantity < 1) return removeItem(productId);
-  await cartCall('PUT', `/items/${productId}`, { quantity: Math.min(quantity, 1000) });
+  await cartCall('PUT', `/items/${productId}`, { quantity: Math.min(quantity, QTY_MAX) });
   await loadCart();
+}
+
+// Fix beyond the course: F5 the quantity is an editable number box. Typing waits QTY_DEBOUNCE_MS, leaving the box
+// (change) commits at once; the value is clamped to 1..QTY_MAX and sent with PUT /carts/{id}/items/{productId}.
+const qtyTimers = new Map(); // productId -> pending timer, so fast typing ends in one PUT per line
+
+function clampQuantity(value) {
+  const n = Math.floor(Number(value));
+  return Number.isFinite(n) ? Math.min(Math.max(n, 1), QTY_MAX) : 1;
+}
+
+function commitQuantity(input, product, current) {
+  clearTimeout(qtyTimers.get(product.id));
+  qtyTimers.delete(product.id);
+  if (input.value.trim() === '') { input.value = String(current); return; } // emptied and left: back to what the cart has
+  const wanted = clampQuantity(input.value);
+  input.value = String(wanted);
+  if (wanted === current) return;
+  input.setAttribute('aria-busy', 'true');
+  setQuantity(product.id, wanted)
+    .catch((err) => { showError(err); input.value = String(current); })
+    .finally(() => input.removeAttribute('aria-busy'));
+}
+
+function quantityInput(product, current) {
+  const input = el('input', {
+    type: 'number', class: 'qty-input', min: 1, max: QTY_MAX, step: 1, inputmode: 'numeric',
+    value: current, 'data-product-id': product.id, 'aria-label': `Quantity of ${product.name}`,
+  });
+  input.addEventListener('input', () => {
+    if (input.value.trim() === '') return; // mid-edit: wait for a number
+    clearTimeout(qtyTimers.get(product.id));
+    qtyTimers.set(product.id, setTimeout(() => commitQuantity(input, product, current), QTY_DEBOUNCE_MS));
+  });
+  input.addEventListener('change', () => commitQuantity(input, product, current));
+  return input;
 }
 
 async function removeItem(productId) {
@@ -509,6 +629,9 @@ async function clearCart() {
 function renderCart() {
   const items = (state.cart && state.cart.items) || [];
   const list = $('cart-items');
+  // The list is rebuilt from scratch; a quantity box being typed in keeps the focus on its replacement.
+  const active = document.activeElement;
+  const focusedProductId = active && active.classList && active.classList.contains('qty-input') ? active.dataset.productId : null;
   list.replaceChildren(...items.map((item) => {
     const product = item.product || {};
     const minus = el('button', { type: 'button', class: 'secondary qty', 'aria-label': `Remove one ${product.name}` }, '−');
@@ -520,8 +643,13 @@ function renderCart() {
     return el('li', { class: 'cart-item' },
       el('span', {}, product.name, ' ', el('span', { class: 'unit' }, `${fmtMoney(product.price)} each`)),
       el('span', { class: 'line-total' }, fmtMoney(item.totalPrice)),
-      el('span', { class: 'controls' }, minus, el('span', { class: 'qty-value' }, String(item.quantity)), plus, remove));
+      el('span', { class: 'controls' }, minus, quantityInput(product, item.quantity), plus, remove));
   }));
+  if (focusedProductId !== null) {
+    for (const input of list.querySelectorAll('input.qty-input')) {
+      if (input.dataset.productId === focusedProductId) { input.focus({ preventScroll: true }); break; }
+    }
+  }
   $('cart-empty').hidden = items.length > 0;
   $('cart-total').textContent = fmtMoney(state.cart ? state.cart.totalPrice : 0);
   $('clear-cart-btn').disabled = items.length === 0;
@@ -595,23 +723,72 @@ function renderOrders() {
     list.replaceChildren(el('p', { class: 'muted' }, 'No orders yet.'));
     return;
   }
-  const orders = [...state.orders].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  // Fix beyond the course: F4 newest first (createdAt, then id), status badge, local date, items behind a <details>;
+  // the order named by the /checkout-success return URL is highlighted and opened.
+  const orders = [...state.orders].sort((a, b) =>
+    String(b.createdAt).localeCompare(String(a.createdAt)) || Number(b.id) - Number(a.id));
   list.replaceChildren(...orders.map((order) => {
     const status = String(order.status || '').toUpperCase();
-    return el('article', { class: 'order' },
+    const items = order.items || [];
+    const highlighted = state.highlightOrderId !== null && String(order.id) === state.highlightOrderId;
+    return el('article', { class: highlighted ? 'order highlight' : 'order' },
       el('div', { class: 'order-head' },
         el('strong', {}, `Order #${order.id}`),
         el('span', { class: `badge status-${status.toLowerCase()}` }, status),
         el('span', { class: 'muted' }, formatDate(order.createdAt)),
         el('span', { class: 'total' }, fmtMoney(order.totalPrice))),
-      el('ul', {}, ...(order.items || []).map((item) =>
-        el('li', {}, `${item.quantity} × ${item.product ? item.product.name : 'product'} — ${fmtMoney(item.totalPrice)}`))));
+      el('details', { class: 'order-items', open: highlighted },
+        el('summary', {}, `${items.length} ${items.length === 1 ? 'item' : 'items'}`),
+        el('ul', {}, ...items.map((item) =>
+          el('li', {}, `${item.quantity} × ${item.product ? item.product.name : 'product'} — ${fmtMoney(item.totalPrice)}`)))));
   }));
 }
 
 function wireOrders() {
   const button = $('refresh-orders-btn');
   button.addEventListener('click', () => busy(button, loadOrders));
+}
+
+// ---------------------------------------------------------------------------
+// Checkout return (Stripe sends the customer back to /checkout-success?orderId=<n> or /checkout-cancel)
+// ---------------------------------------------------------------------------
+
+function showBanner(message, kind) {
+  const banner = $('checkout-banner');
+  banner.className = `banner banner-${kind}`;
+  $('banner-text').textContent = message;
+  banner.hidden = false;
+}
+
+// Fix beyond the course: F3 both return URLs serve this page; the banner is filled in from the URL, which is then
+// rewritten back to "/" so a reload (or a bookmark) does not announce the payment twice.
+function wireCheckoutReturn() {
+  $('banner-dismiss').addEventListener('click', () => { $('checkout-banner').hidden = true; });
+  const path = location.pathname.replace(/\/+$/, ''); // tolerate a trailing slash
+  if (path === '/checkout-success') {
+    const orderId = new URLSearchParams(location.search).get('orderId');
+    if (orderId !== null && ORDER_ID_RE.test(orderId)) {
+      state.highlightOrderId = orderId; // renderOrders() highlights it once GET /orders answers
+      showBanner(`Payment received — order #${orderId} is confirmed. Thank you!`, 'success');
+    } else {
+      showBanner('Payment received — your order is confirmed. Thank you!', 'success');
+    }
+  } else if (path === '/checkout-cancel') {
+    showBanner('Checkout cancelled — your cart is still here.', 'info');
+  } else {
+    return;
+  }
+  history.replaceState(null, '', '/');
+}
+
+// Fix beyond the course: F7 the header is sticky on wide screens (app.css); the sticky cart panel sits below it,
+// so the header's rendered height is published as --header-h (it changes when the toolbar wraps).
+function wireStickyHeader() {
+  const header = document.querySelector('.site-header');
+  const update = () => document.documentElement.style.setProperty('--header-h', `${header.offsetHeight}px`);
+  if (typeof ResizeObserver === 'function') new ResizeObserver(update).observe(header);
+  else window.addEventListener('resize', update);
+  update();
 }
 
 // ---------------------------------------------------------------------------
@@ -623,6 +800,8 @@ function init() {
   wireAdminForm();
   wireCart();
   wireOrders();
+  wireCheckoutReturn();
+  wireStickyHeader();
   $('search').addEventListener('input', (event) => {
     state.search = event.target.value.trim().toLowerCase();
     renderProducts();

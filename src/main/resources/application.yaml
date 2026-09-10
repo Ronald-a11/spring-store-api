@@ -13,6 +13,11 @@ stripe:
   # Fix beyond the course: empty defaults so the app starts without Stripe keys (StripeConfig warns at startup).
   secretKey: ${STRIPE_SECRET_KEY:}
   webhookSecretKey: ${STRIPE_WEBHOOK_SECRET_KEY:}
+# Fix beyond the course: ADMIN_EMAILS (a Railway service variable or a line in .env) is a comma-separated list of
+# e-mails - trimmed, case-insensitive - that register as ADMIN instead of USER (UserService) and, when the account
+# already exists, are promoted at start-up (AdminBootstrap). Empty default: nobody, the variable can stay unset.
+admin:
+  emails: ${ADMIN_EMAILS:}
 # Beyond the course (API docs): Swagger UI settings — the Authorize token survives a reload, request
 # timings are shown, operations are sorted by HTTP method, "Try it out" is open by default, and
 # responses are documented as application/json unless an operation says otherwise.
@@ -24,3 +29,14 @@ springdoc:
     operations-sorter: method
     doc-expansion: list
     try-it-out-enabled: true
+# Fix beyond the course: GET /actuator/health (public, see SwaggerSecurityRules) is the Railway health-check path
+# (railway.json). Only the health endpoint is exposed over HTTP and it answers {"status":"UP"} with no component
+# details; the database indicator stays on, so a lost MySQL connection turns it DOWN (503) and fails the check.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

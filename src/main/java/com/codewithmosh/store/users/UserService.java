@@ -18,6 +18,8 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     // Fix beyond the course: needed to check that the caller owns the account (or is an admin).
     private final AuthService authService;
+    // Fix beyond the course: the ADMIN_EMAILS list, so a listed e-mail registers as ADMIN.
+    private final AdminProperties adminProperties;
 
     public Iterable<UserDto> getAllUsers(String sortBy) {
         if (!Set.of("name", "email").contains(sortBy))
@@ -43,7 +45,8 @@ public class UserService {
 
         var user = userMapper.toEntity(request);
         user.setPassword(passwordEncoder.encode(user.getPassword()));
-        user.setRole(Role.USER);
+        // Fix beyond the course: an e-mail listed in ADMIN_EMAILS (AdminProperties) registers as ADMIN instead of USER.
+        user.setRole(adminProperties.isAdmin(user.getEmail()) ? Role.ADMIN : Role.USER);
         // Fix beyond the course: a concurrent registration can slip past the check above; the unique index (V6) catches it.
         try {
             userRepository.save(user);

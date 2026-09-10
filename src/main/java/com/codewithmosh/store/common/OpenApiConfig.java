@@ -31,8 +31,9 @@ import org.springframework.context.annotation.Configuration;
             as an HttpOnly cookie for `POST /auth/refresh`); log in again when calls start returning 401. \
             Endpoints without a lock icon are public.
 
-            **Roles.** New accounts have the role `USER`. `ADMIN` (managing products, listing users, \
-            `/admin`) is granted directly in the database — \
+            **Roles.** New accounts have the role `USER`, unless the e-mail is listed in the server's \
+            `ADMIN_EMAILS` environment variable, which also promotes existing accounts at start-up. `ADMIN` \
+            (managing products, listing users, `/admin`) can otherwise be granted directly in the database — \
             `UPDATE users SET role = 'ADMIN' WHERE email = '...'` — and takes effect at the next login.
 
             **Carts** are anonymous: `POST /carts` creates one and its UUID identifies it in every cart \
@@ -45,7 +46,7 @@ import org.springframework.context.annotation.Configuration;
     ),
     security = @SecurityRequirement(name = "bearerAuth"),
     tags = {
-        @Tag(name = "Products", description = "Product catalogue. Reading is public; creating, updating and deleting products requires the ADMIN role."),
+        @Tag(name = "Products", description = "Product catalogue and its categories. Reading is public; creating, updating and deleting products requires the ADMIN role."),
         @Tag(name = "Carts", description = "Anonymous shopping carts identified by their UUID; no authentication."),
         @Tag(name = "Checkout", description = "Turns a cart into an order and a Stripe Checkout Session, and receives Stripe's webhook events."),
         @Tag(name = "Orders", description = "Order history of the authenticated user."),

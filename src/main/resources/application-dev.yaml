@@ -8,4 +8,6 @@ spring:
     password: ${DB_PASSWORD:MyPassword!}
   jpa:
     show-sql: true
-websiteUrl: http://localhost:4242
+# Fix beyond the course: the course pointed Stripe's success/cancel return URLs (StripePaymentGateway) at a separate
+# front end on :4242; the storefront is served by this app, so the default is its own origin. WEBSITE_URL overrides it.
+websiteUrl: ${WEBSITE_URL:http://localhost:8080}

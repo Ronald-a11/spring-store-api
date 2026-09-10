@@ -16,6 +16,8 @@
         <p class="tagline">Fresh groceries online — browse, fill your cart, sign in and check out.</p>
     </div>
     <div class="toolbar">
+        <!-- Fix beyond the course: F7 product count ("10 products", "3 of 10 products" while filtering), filled in by app.js. -->
+        <span id="product-count" class="product-count" role="status"></span>
         <input id="search" type="search" placeholder="Search products" aria-label="Search products by name" autocomplete="off">
         <div id="auth-area" class="auth-area">
             <button id="login-btn" type="button">Log in</button>
@@ -28,6 +30,13 @@
         </div>
     </div>
 </header>
+
+<!-- Fix beyond the course: F3 checkout return - Stripe sends the customer back to /checkout-success?orderId=<n> or
+     /checkout-cancel (both serve this page); app.js fills this banner in from the URL and then rewrites it back to "/". -->
+<div id="checkout-banner" class="banner" role="status" hidden>
+    <p id="banner-text" class="banner-text"></p>
+    <button id="banner-dismiss" type="button" class="secondary small">Dismiss</button>
+</div>
 
 <nav id="categories" class="categories" aria-label="Filter by category"></nav>
 
@@ -74,10 +83,15 @@
     </section>
 </main>
 
+<!-- Fix beyond the course: F7 footer links to every public JSON endpoint next to the docs. -->
 <footer class="site-footer">
     <a href="/swagger-ui/index.html">API docs (Swagger UI)</a>
     <span aria-hidden="true">&middot;</span>
     <a href="/products">/products JSON</a>
+    <span aria-hidden="true">&middot;</span>
+    <a href="/categories">/categories JSON</a>
+    <span aria-hidden="true">&middot;</span>
+    <a href="/actuator/health">/actuator/health</a>
 </footer>
 
 <dialog id="auth-dialog" class="auth-dialog">

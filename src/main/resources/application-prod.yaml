@@ -10,4 +10,7 @@ spring:
 # ForwardedHeadersConfig registers the filter in Boot's place with those four headers hidden from it.
 server:
   forward-headers-strategy: framework
-websiteUrl: https://mystore.com
+# Fix beyond the course: WEBSITE_URL (Railway service variable) is the public origin Stripe sends the customer back to
+# after paying or cancelling (/checkout-success, /checkout-cancel - StripePaymentGateway); the course's placeholder
+# stays the default so a deployment without the variable behaves as before.
+websiteUrl: ${WEBSITE_URL:https://mystore.com}

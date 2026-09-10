@@ -9,6 +9,11 @@
 # P1..P2 products, C1..C2 carts, W1..W3 payments).
 #
 # Usage:  BASE_URL=http://localhost:8080 bash smoke-test.sh
+#   SMOKE_ADMIN_EMAIL=<lowercase e-mail listed in the ADMIN_EMAILS of the instance
+#     under test> enables the B1 admin-bootstrap checks (skipped with a note when
+#     unset); the account it registers deletes itself at the end.
+#   SMOKE_ENV_FILE=<path> is the .env whose JWT_SECRET signs the AT-5 test tokens
+#     (default: $PROJECT_DIR/.env) - point it at the secret of a throw-away instance.
 # Re-runnable: all e-mails carry a per-run timestamp suffix.
 # Exits non-zero if any check fails.
 
@@ -66,11 +71,12 @@ head_req() {
 }
 
 # mint_jwt <claims-json> -> prints an HS256 JWT signed with JWT_SECRET read from
-# $PROJECT_DIR/.env (the secret stays inside the python process and is never
-# printed). Prints nothing when no secret is readable. Mirrors JwtConfig:
-# Keys.hmacShaKeyFor(secret.getBytes()), i.e. the raw UTF-8 bytes of the value.
+# $SMOKE_ENV_FILE, default $PROJECT_DIR/.env (the secret stays inside the python
+# process and is never printed). Prints nothing when no secret is readable.
+# Mirrors JwtConfig: Keys.hmacShaKeyFor(secret.getBytes()), i.e. the raw UTF-8
+# bytes of the value.
 mint_jwt() {
-  python - "$PROJECT_DIR/.env" "$1" <<'PY'
+  python - "${SMOKE_ENV_FILE:-$PROJECT_DIR/.env}" "$1" <<'PY'
 import sys, re, json, hmac, hashlib, base64
 env_path, claims = sys.argv[1], sys.argv[2]
 secret = None
@@ -144,10 +150,10 @@ case "$BODY" in
   *) ok "GET / has no Thymeleaf inlining sequences" ;;
 esac
 
-# Fix beyond the course: HEAD "/" is permitted too - it is the health-check path
-# (railway.json) and probes or proxies that send HEAD got 401.
+# Fix beyond the course: HEAD "/" is permitted too - it was the health-check path
+# (railway.json, now /actuator/health) and probes or proxies that send HEAD got 401.
 head_req "/"
-expect_status "HEAD / anonymous is 200 (health-check path; GET and HEAD permitted)" 200
+expect_status "HEAD / anonymous is 200 (former health-check path; GET and HEAD permitted)" 200
 
 req GET "/app.js"
 expect_status "GET /app.js anonymous is 200 (storefront asset, permitAll GET only)" 200
@@ -1160,6 +1166,154 @@ if [ -f "$APP_JS" ]; then
   fi
 else
   bad "RT1-2: app.js is readable" "not found at $APP_JS"
+fi
+
+############################################################
+section "Round-5: admin bootstrap, categories, checkout return, health, storefront"
+############################################################
+# --- B4: GET /actuator/health is the health-check path; nothing else is exposed ---
+# spring-boot-starter-actuator with management.endpoints.web.exposure.include=health
+# and show-details=never; SwaggerSecurityRules permits GET /actuator/health only.
+req GET "/actuator/health"
+expect_status "B4: GET /actuator/health anonymous is 200" 200
+expect_eq "B4: /actuator/health body is exactly {\"status\":\"UP\"} (show-details: never)" \
+  "$(pyq "$BODY" "d == {'status': 'UP'}")" "True"
+expect_header_contains "B4: /actuator/health is served as JSON" "^content-type: *application/.*json"
+req GET "/actuator"
+expect_status "B4: GET /actuator anonymous is 401 (only the health path is public)" 401
+req GET "/actuator/health/db"
+expect_status "B4: GET /actuator/health/db anonymous is 401 (no component details)" 401
+req GET "/actuator/env"
+expect_status "B4: GET /actuator/env anonymous is 401" 401
+req POST "/actuator/health"
+expect_status "B4: POST /actuator/health is 401 (GET only)" 401
+
+# --- B2: GET /categories lists the V5 categories, public, GET only ---
+req GET "/categories"
+expect_status "B2: GET /categories anonymous is 200" 200
+expect_header_contains "B2: /categories is application/json" "^content-type: *application/json"
+expect_eq "B2: GET /categories returns the 6 seeded categories" "$(pyq "$BODY" "len(d)")" "6"
+expect_eq "B2: GET /categories is ordered by id 1..6" "$(pyq "$BODY" "[c['id'] for c in d]")" "[1, 2, 3, 4, 5, 6]"
+expect_eq "B2: GET /categories carries the V5 names in order" \
+  "$(pyq "$BODY" "[c['name'] for c in d]")" "['Produce', 'Dairy', 'Bakery', 'Meat & Seafood', 'Pantry Staples', 'Beverages']"
+expect_eq "B2: every entry is exactly {id: int, name: str}" \
+  "$(pyq "$BODY" "all(set(c) == {'id', 'name'} and isinstance(c['id'], int) and isinstance(c['name'], str) for c in d)")" "True"
+req POST "/categories"
+expect_status "B2: POST /categories anonymous is 401 (GET only)" 401
+
+# --- B3: Stripe's return URLs serve the storefront page ---
+# StripePaymentGateway builds websiteUrl + "/checkout-success?orderId=<n>" and
+# "/checkout-cancel"; HomeController maps both to the index view (GET only).
+req GET "/checkout-success?orderId=1"
+expect_status "B3: GET /checkout-success?orderId=1 anonymous is 200" 200
+expect_header_contains "B3: /checkout-success is text/html" "^content-type: *text/html"
+expect_body_contains "B3: /checkout-success serves the storefront (h1)" "<h1>Tyrone Grocery Shop</h1>"
+expect_body_contains "B3: /checkout-success loads app.js" '<script src="/app.js">'
+req GET "/checkout-success?orderId=abc"
+expect_status "B3: GET /checkout-success?orderId=abc is 200 (orderId is validated client-side)" 200
+req GET "/checkout-success"
+expect_status "B3: GET /checkout-success without a query is 200" 200
+req GET "/checkout-cancel"
+expect_status "B3: GET /checkout-cancel anonymous is 200" 200
+expect_header_contains "B3: /checkout-cancel is text/html" "^content-type: *text/html"
+expect_body_contains "B3: /checkout-cancel loads app.js" '<script src="/app.js">'
+req POST "/checkout-success"
+expect_status "B3: POST /checkout-success is 401 (GET only)" 401
+req POST "/checkout-cancel"
+expect_status "B3: POST /checkout-cancel is 401 (GET only)" 401
+req GET "/"
+expect_status "B3: GET / is still 200" 200
+
+# --- B5: OpenAPI - /categories under Products without a lock; no actuator or return page ---
+req GET "/v3/api-docs"
+expect_status "B5: GET /v3/api-docs is 200" 200
+expect_eq "B5: GET /categories is documented under the Products tag" \
+  "$(pyq "$BODY" "d['paths']['/categories']['get']['tags']")" "['Products']"
+expect_eq "B5: GET /categories shows no lock (security: [])" \
+  "$(pyq "$BODY" "d['paths']['/categories']['get']['security']")" "[]"
+expect_eq "B5: GET /categories summary" \
+  "$(pyq "$BODY" "d['paths']['/categories']['get']['summary']")" "List categories (public)"
+expect_eq "B5: no actuator or checkout-return path in the OpenAPI document" \
+  "$(pyq "$BODY" "[p for p in d['paths'] if 'actuator' in p or 'checkout-' in p]")" "[]"
+expect_eq "B5: CategoryDto.id is documented as an integer (not string/byte)" \
+  "$(pyq "$BODY" "d['components']['schemas']['CategoryDto']['properties']['id']['type']")" "integer"
+expect_eq "B5: the Products tag description mentions categories" \
+  "$(pyq "$BODY" "[t['description'].startswith('Product catalogue and its categories.') for t in d['tags'] if t['name'] == 'Products']")" "[True]"
+expect_body_contains "B5: the API description mentions ADMIN_EMAILS" "ADMIN_EMAILS"
+
+# --- F1-F7: the storefront's new markup, script and styles are served ---
+req GET "/"
+for needle in 'id="checkout-banner"' 'id="banner-text"' 'id="banner-dismiss"' 'id="product-count"' \
+              'href="/categories"' 'href="/actuator/health"' 'href="/products"'; do
+  expect_body_contains "F3/F7: GET / has $needle" "$needle"
+done
+
+req GET "/app.js"
+expect_status "F: GET /app.js is 200" 200
+for needle in "'/categories'" 'CATEGORY_ICONS' 'Payment received' 'is confirmed. Thank you!' \
+              'Checkout cancelled' 'No products yet.' 'qty-input' "history.replaceState(null, '', '/')" \
+              "'aria-hidden': 'true'" 'Tyrone Grocery Shop'; do
+  expect_body_contains "F1-F7: app.js has $needle" "$needle"
+done
+# Ground rule of the storefront: API data reaches the DOM through textContent only.
+UNSAFE_DOM="$(printf '%s' "$BODY" | grep -cE '\.innerHTML|insertAdjacentHTML|outerHTML' || true)"
+expect_eq "F: app.js has no .innerHTML / insertAdjacentHTML / outerHTML" "$UNSAFE_DOM" "0"
+
+req GET "/app.css"
+expect_status "F: GET /app.css is 200" 200
+for needle in '.banner-success' '.banner-info' '.qty-input' '.order.highlight' '.order-items summary' \
+              '.product-count' '.site-header { position: sticky'; do
+  expect_body_contains "F2-F7: app.css has $needle" "$needle"
+done
+
+if [ -f "$APP_JS" ]; then
+  if command -v node >/dev/null 2>&1; then
+    if node --check "$APP_JS" 2>"$TMP/nodecheck"; then
+      ok "F: node --check app.js passes"
+    else
+      bad "F: node --check app.js passes" "$(head -c 300 "$TMP/nodecheck")"
+    fi
+  else
+    printf 'SKIP  F: node --check app.js (node is not installed)\n'
+  fi
+fi
+
+# --- B1: an e-mail listed in ADMIN_EMAILS registers as ADMIN (no SQL) ---
+# Only when the caller names such an e-mail: the value has to be in the
+# ADMIN_EMAILS of the instance under test, which this script cannot know.
+# A normal e-mail still registers as USER ("GET /admin/hello as a normal USER
+# is 403" above). The account deletes itself at the end, so the same e-mail can
+# be registered again on the next run; a leftover from an interrupted run (same
+# e-mail and password) is removed first.
+if [ -n "${SMOKE_ADMIN_EMAIL:-}" ]; then
+  req POST "/auth/login" "{\"email\":\"$SMOKE_ADMIN_EMAIL\",\"password\":\"$PASS_A\"}"
+  if [ "$STATUS" = "200" ]; then
+    LEFTOVER_TOKEN="$(pyq "$BODY" "d['token']")"
+    req GET "/auth/me" "" "$LEFTOVER_TOKEN"
+    LEFTOVER_ID="$(pyq "$BODY" "d['id']")"
+    req DELETE "/users/$LEFTOVER_ID" "" "$LEFTOVER_TOKEN"
+    expect_status "B1: removed the leftover $SMOKE_ADMIN_EMAIL account from an earlier run" 200
+  fi
+
+  req POST "/users" "{\"name\":\"Bootstrap Admin $TS\",\"email\":\"$SMOKE_ADMIN_EMAIL\",\"password\":\"$PASS_A\"}"
+  expect_status "B1: POST /users registers the ADMIN_EMAILS account ($SMOKE_ADMIN_EMAIL)" 201
+  BOOT_ID="$(pyq "$BODY" "d['id']")"
+
+  req POST "/auth/login" "{\"email\":\"$SMOKE_ADMIN_EMAIL\",\"password\":\"$PASS_A\"}"
+  expect_status "B1: POST /auth/login as the ADMIN_EMAILS account is 200" 200
+  BOOT_TOKEN="$(pyq "$BODY" "d['token']")"
+
+  req GET "/admin/hello" "" "$BOOT_TOKEN"
+  expect_status "B1: GET /admin/hello as the ADMIN_EMAILS account is 200 (ADMIN at registration, no SQL)" 200
+  expect_body_contains "B1: ... and greets the admin" "Hello Admin!"
+
+  req GET "/users" "" "$BOOT_TOKEN"
+  expect_status "B1: GET /users as the ADMIN_EMAILS account is 200 (admin-only listing)" 200
+
+  req DELETE "/users/$BOOT_ID" "" "$BOOT_TOKEN"
+  expect_status "B1: cleanup - the ADMIN_EMAILS account deleted itself (re-runnable)" 200
+else
+  printf 'SKIP  B1: admin bootstrap - set SMOKE_ADMIN_EMAIL to a lowercase e-mail listed in the ADMIN_EMAILS of the instance under test\n'
 fi
 
 ############################################################

@@ -64,7 +64,7 @@ public class UserController {
     }
 
     @Operation(summary = "Register a new user (public)",
-               description = "Creates an account with the USER role and returns it; the `Location` header points at `/users/{id}`. Log in with `POST /auth/login` afterwards.")
+               description = "Creates an account with the USER role (ADMIN when the e-mail is listed in the server's `ADMIN_EMAILS`) and returns it; the `Location` header points at `/users/{id}`. Log in with `POST /auth/login` afterwards.")
     @SecurityRequirements
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "The created user; `Location` header set.",
