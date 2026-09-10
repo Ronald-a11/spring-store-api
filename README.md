@@ -316,8 +316,8 @@ does can also be done from Swagger UI or curl:
    Tokens last 15 minutes: any `401` on an authenticated call ends the session with
    *Session expired, please log in again*.
 4. **Checkout.** *Checkout* is enabled once you are logged in and the cart is not empty; it
-   posts `{cartId}` to `POST /checkout` and opens the returned Stripe URL. Without a
-   `STRIPE_SECRET_KEY` the API answers `500 {"error": "Error creating a checkout session"}`
+   posts `{cartId}` to `POST /checkout` and opens the returned Stripe URL in a new tab (in the
+   same tab when the browser blocks the pop-up). Without a `STRIPE_SECRET_KEY` the API answers `500 {"error": "Error creating a checkout session"}`
    (and deletes the order), which the page shows as *The payment provider could not create a
    checkout session (Stripe is not configured on this demo) — the order was not created.*
    Any other `500` is shown with the server's own message.
@@ -362,7 +362,7 @@ with a one-line comment starting with `// Fix beyond the course:` (or
 | Payments | `WARN` logged at startup when `STRIPE_SECRET_KEY` is blank | The app started silently with Stripe unconfigured and only failed at the first checkout |
 | Users | `@Builder.Default` on `User.favoriteProducts` | Lombok's builder ignored the field initialiser, so `User.builder().build()` had a `null` set and `addFavoriteProduct` threw `NullPointerException` |
 | Common | `GET /` and `HEAD /` are public and the home page links to Swagger UI and `/products` | No security rule permitted `/`, so opening the root URL in a browser returned a blank `401` and looked like the app was down; `HEAD /` (the health-check path on Railway) still answered `401` to probes that send `HEAD` |
-| Common | `server.forward-headers-strategy: framework` in `application-prod.yaml`, so absolute URLs honour the proxy's `X-Forwarded-Proto`/`Host` | Behind Railway's TLS-terminating edge the app saw plain `http` requests: the OpenAPI document advertised an `http://` server, so **Try it out** in the `https` Swagger UI was blocked as mixed content, and the `201` `Location` headers of `POST /users`, `/carts` and `/products` pointed at `http://` |
+| Common | `server.forward-headers-strategy: framework` in `application-prod.yaml`, so absolute URLs honour the proxy's `X-Forwarded-Proto`/`Host`; `ForwardedHeadersConfig` registers the filter in Boot's place with the client-controllable `Forwarded`, `X-Forwarded-Port`, `X-Forwarded-Prefix` and `X-Forwarded-Ssl` headers hidden from it | Behind Railway's TLS-terminating edge the app saw plain `http` requests: the OpenAPI document advertised an `http://` server, so **Try it out** in the `https` Swagger UI was blocked as mixed content, and the `201` `Location` headers of `POST /users`, `/carts` and `/products` pointed at `http://`. Railway overwrites only `X-Forwarded-Proto`/`Host`/`For`, so with the stock filter any client could choose the scheme, host, port or path prefix of the OpenAPI `servers` URL, the swagger-config redirect URL and every `201 Location` by sending the other four headers |
 | Auth | The app refuses to start when `JWT_SECRET` is blank or shorter than 32 bytes (256 bits); the value is never logged | A blank secret booted a "healthy" app in which every `POST /auth/login` returned `401` (`WeakKeyException` at the first login), so a deployment health check could not tell |
 | Docs | Swagger UI documents every endpoint: tags, summaries, status codes, examples; Authorize persists across reloads; public endpoints show no lock | The course strips its OpenAPI annotations at the end, so the generated docs listed bare paths with no explanation, and with the global `bearerAuth` requirement every operation showed a lock — public ones included |
 | Web UI | The home page is a small storefront (vanilla HTML/JS) that uses the public and authenticated endpoints; Swagger UI stays at `/swagger-ui/index.html`. `GET /app.js`, `/app.css` and `/favicon.ico` are permitted (GET only) so the assets load anonymously | The root URL only said "the API is running"; the storefront exercises the whole flow — browse, cart, register, log in, check out, order history, admin product management — from a browser without Swagger or curl (see [Using the storefront](#using-the-storefront)) |
@@ -426,7 +426,12 @@ Stripe redirect. Railway terminates TLS at its edge and forwards plain HTTP, so
 `application-prod.yaml` sets `server.forward-headers-strategy: framework`: the app honours
 `X-Forwarded-Proto`/`Host` and the OpenAPI `servers` entry and every `Location` header use
 `https://` (without it Swagger UI's **Try it out** targets `http://` and the browser blocks
-the mixed-content requests).
+the mixed-content requests). Exactly three forwarded headers are trusted — `X-Forwarded-Proto`,
+`X-Forwarded-Host` and `X-Forwarded-For`, the ones Railway's edge overwrites on every request.
+The edge passes a client-supplied `Forwarded`, `X-Forwarded-Port`, `X-Forwarded-Prefix` or
+`X-Forwarded-Ssl` through untouched, so `ForwardedHeadersConfig` hides those four from Spring's
+`ForwardedHeaderFilter`: a request carrying `Forwarded: host=evil.example` still gets a
+`Location` on the real host (`scripts/smoke-test.sh` checks this).
 
 Set an explicit **memory limit** on the API service (service **Settings → Resource
 limits**; 1 GB is plenty): the JVM sizes its heap from the container's cgroup limit, and

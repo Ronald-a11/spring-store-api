@@ -1105,6 +1105,65 @@ else
 fi
 
 ############################################################
+section "Round-4 fixes (regression guards)"
+############################################################
+# --- RT1-1 (round 4): client-supplied forwarded headers must not shape URLs ---
+# ForwardedHeadersConfig hides "Forwarded", X-Forwarded-Port, -Prefix and -Ssl
+# from Spring's ForwardedHeaderFilter: Railway's edge only sets X-Forwarded-
+# Proto/Host/For and passes the other four through from the client. Locally the
+# filter exists only when server.forward-headers-strategy=framework is set (as
+# in prod); without it the headers are ignored anyway, so the checks hold too.
+req POST "/carts" "" "" "Forwarded: host=evil.example;proto=http"
+expect_status "RT1-1: POST /carts with a client-supplied Forwarded header is still 201" 201
+case "$HDRS" in
+  *evil.example*) bad "RT1-1: Location ignores a client-supplied Forwarded header" \
+                      "built from it: $(printf '%s' "$HDRS" | grep -i '^location' | tr -d '\r')" ;;
+  *) ok "RT1-1: Location ignores a client-supplied Forwarded header" ;;
+esac
+
+req POST "/carts" "" "" "X-Forwarded-Prefix: /evil"
+case "$HDRS" in
+  *"/evil/carts/"*) bad "RT1-1: Location ignores a client-supplied X-Forwarded-Prefix" \
+                        "built from it: $(printf '%s' "$HDRS" | grep -i '^location' | tr -d '\r')" ;;
+  *) ok "RT1-1: Location ignores a client-supplied X-Forwarded-Prefix" ;;
+esac
+
+req POST "/carts" "" "" "X-Forwarded-Port: 8443"
+case "$HDRS" in
+  *":8443/carts/"*) bad "RT1-1: Location ignores a client-supplied X-Forwarded-Port" \
+                        "built from it: $(printf '%s' "$HDRS" | grep -i '^location' | tr -d '\r')" ;;
+  *) ok "RT1-1: Location ignores a client-supplied X-Forwarded-Port" ;;
+esac
+
+req GET "/v3/api-docs" "" "" "Forwarded: host=evil.example;proto=http"
+expect_status "RT1-1: GET /v3/api-docs with a client-supplied Forwarded header is 200" 200
+case "$BODY" in
+  *evil.example*) bad "RT1-1: OpenAPI servers[] ignores a client-supplied Forwarded header" \
+                      "servers: $(pyq "$BODY" "d['servers']")" ;;
+  *) ok "RT1-1: OpenAPI servers[] ignores a client-supplied Forwarded header ($(pyq "$BODY" "d['servers'][0]['url']"))" ;;
+esac
+
+# --- RT1-2: the storefront no longer opens Stripe with the 'noopener' feature ---
+# window.open(url, '_blank', 'noopener') returns null by spec, so the pop-up
+# blocked fallback (same-tab navigation) always ran as well; app.js now opens
+# plainly and nulls the opener by hand. Static check on the source.
+APP_JS="$PROJECT_DIR/src/main/resources/static/app.js"
+if [ -f "$APP_JS" ]; then
+  if grep -qE "window\.open\([^)]*'noopener'" "$APP_JS"; then
+    bad "RT1-2: app.js does not pass 'noopener' to window.open()" "$(grep -nE "window\.open\([^)]*'noopener'" "$APP_JS" | head -1)"
+  else
+    ok "RT1-2: app.js does not pass 'noopener' to window.open()"
+  fi
+  if grep -q "opened.opener = null" "$APP_JS"; then
+    ok "RT1-2: app.js severs the opener link by hand after window.open()"
+  else
+    bad "RT1-2: app.js severs the opener link by hand" "no 'opened.opener = null' in app.js"
+  fi
+else
+  bad "RT1-2: app.js is readable" "not found at $APP_JS"
+fi
+
+############################################################
 printf '\n=========================================\n'
 printf 'PASSED: %d   FAILED: %d\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

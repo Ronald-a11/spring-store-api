@@ -546,8 +546,12 @@ async function checkout() {
     toast(`Order #${result.orderId} created — opening Stripe Checkout.`, 'success');
     // Open Stripe straight away, while the click's user activation is still fresh: awaiting the refreshes
     // first could push window.open() past the activation window and get it blocked as a pop-up.
-    const opened = window.open(result.checkoutUrl, '_blank', 'noopener');
+    // Not with the 'noopener' feature: window.open() then returns null by spec (Chrome, Firefox, Safari), which
+    // would make the pop-up-blocked fallback below fire every time (Stripe twice when pop-ups are allowed).
+    // Open plainly, then cut the opener link by hand so Stripe's tab cannot reach this window.
+    const opened = window.open(result.checkoutUrl, '_blank');
     if (!opened) { window.location.assign(result.checkoutUrl); return; } // pop-up blocked: go there directly
+    opened.opener = null;
     await loadCart();   // the server empties the cart on success
     await loadOrders();
   } catch (err) {
