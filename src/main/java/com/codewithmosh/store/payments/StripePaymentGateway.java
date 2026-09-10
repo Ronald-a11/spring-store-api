@@ -29,8 +29,8 @@ public class StripePaymentGateway implements PaymentGateway {
         try {
             var builder = SessionCreateParams.builder()
                     .setMode(SessionCreateParams.Mode.PAYMENT)
-                    .setSuccessUrl(websiteUrl + "/checkout-success?orderId=" + order.getId())
-                    .setCancelUrl(websiteUrl + "/checkout-cancel")
+                    .setSuccessUrl(returnUrl("/checkout-success?orderId=" + order.getId()))
+                    .setCancelUrl(returnUrl("/checkout-cancel"))
                     .setPaymentIntentData(createPaymentIntent(order));
 
             order.getItems().forEach(item -> {
@@ -46,6 +46,12 @@ public class StripePaymentGateway implements PaymentGateway {
             // Fix beyond the course: carry the Stripe reason so the controller can log it.
             throw new PaymentException(ex.getMessage());
         }
+    }
+
+    // Fix beyond the course: WEBSITE_URL set with a trailing slash ("https://host/") would send the customer to
+    // "https://host//checkout-success", which Spring Security's firewall rejects with 400 - strip it before joining.
+    private String returnUrl(String path) {
+        return websiteUrl.replaceAll("/+$", "") + path;
     }
 
     private static SessionCreateParams.PaymentIntentData createPaymentIntent(Order order) {

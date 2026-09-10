@@ -32,10 +32,14 @@
 </header>
 
 <!-- Fix beyond the course: F3 checkout return - Stripe sends the customer back to /checkout-success?orderId=<n> or
-     /checkout-cancel (both serve this page); app.js fills this banner in from the URL and then rewrites it back to "/". -->
-<div id="checkout-banner" class="banner" role="status" hidden>
-    <p id="banner-text" class="banner-text"></p>
-    <button id="banner-dismiss" type="button" class="secondary small">Dismiss</button>
+     /checkout-cancel (both serve this page); app.js fills this banner in from the URL and then rewrites it back to "/".
+     The live region (role="status") is the always-present wrapper, not the hidden banner: assistive technology announces
+     changes inside a region that is already in the accessibility tree, not text a region already holds when it appears. -->
+<div id="checkout-region" role="status">
+    <div id="checkout-banner" class="banner" hidden>
+        <p id="banner-text" class="banner-text"></p>
+        <button id="banner-dismiss" type="button" class="secondary small">Dismiss</button>
+    </div>
 </div>
 
 <nav id="categories" class="categories" aria-label="Filter by category"></nav>
@@ -43,7 +47,10 @@
 <main class="layout">
     <section class="catalogue" aria-labelledby="catalogue-heading">
         <h2 id="catalogue-heading" class="visually-hidden">Products</h2>
-        <p id="products-status" class="status" role="status" hidden></p>
+        <!-- Fix beyond the course: the same always-present live-region wrapper as the checkout banner, so a retry's status is announced. -->
+        <div role="status">
+            <p id="products-status" class="status" hidden></p>
+        </div>
         <div id="product-grid" class="product-grid"></div>
     </section>
 

@@ -65,6 +65,12 @@ public class UserService {
         if (!user.getEmail().equals(request.getEmail()) && userRepository.existsByEmail(request.getEmail())) {
             throw new DuplicateUserException();
         }
+        // Fix beyond the course: a listed (ADMIN_EMAILS) address with no account yet would earn whoever moves onto it the
+        // ADMIN role at the next start (AdminBootstrap), so only an admin may change an e-mail to one.
+        if (!user.getEmail().equals(request.getEmail()) && adminProperties.isAdmin(request.getEmail())
+                && authService.getCurrentUser().getRole() != Role.ADMIN) {
+            throw new UserAccessDeniedException("Only an admin can change an e-mail to one listed in ADMIN_EMAILS.");
+        }
         userMapper.update(request, user);
         // Fix beyond the course: same race as in registerUser; the unique index (V6) catches it.
         try {

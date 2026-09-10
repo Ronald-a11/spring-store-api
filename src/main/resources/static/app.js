@@ -631,7 +631,9 @@ function renderCart() {
   const list = $('cart-items');
   // The list is rebuilt from scratch; a quantity box being typed in keeps the focus on its replacement.
   const active = document.activeElement;
-  const focusedProductId = active && active.classList && active.classList.contains('qty-input') ? active.dataset.productId : null;
+  const editing = active && active.classList && active.classList.contains('qty-input') ? active : null;
+  const focusedProductId = editing ? editing.dataset.productId : null;
+  const typed = editing ? editing.value : null;
   list.replaceChildren(...items.map((item) => {
     const product = item.product || {};
     const minus = el('button', { type: 'button', class: 'secondary qty', 'aria-label': `Remove one ${product.name}` }, '−');
@@ -647,7 +649,18 @@ function renderCart() {
   }));
   if (focusedProductId !== null) {
     for (const input of list.querySelectorAll('input.qty-input')) {
-      if (input.dataset.productId === focusedProductId) { input.focus({ preventScroll: true }); break; }
+      if (input.dataset.productId === focusedProductId) {
+        // Fix beyond the course: a value still being typed (a digit entered while the previous commit was in flight)
+        // is carried over to the replacement instead of being wiped by the server's value, the caret goes back to the
+        // end (a bare focus() may leave it at the start), and re-dispatching "input" re-arms the debounce on the new
+        // box against the new current quantity - which also cancels the stale timer of the detached box (one per product).
+        const fromServer = input.value;
+        input.focus({ preventScroll: true });
+        input.value = '';
+        input.value = typed;
+        if (typed !== fromServer) input.dispatchEvent(new Event('input'));
+        break;
+      }
     }
   }
   $('cart-empty').hidden = items.length > 0;
@@ -731,6 +744,7 @@ function renderOrders() {
     const status = String(order.status || '').toUpperCase();
     const items = order.items || [];
     const highlighted = state.highlightOrderId !== null && String(order.id) === state.highlightOrderId;
+    if (highlighted && status === 'PAID') confirmPaymentBanner(order.id); // the webhook has landed: "confirmed"
     return el('article', { class: highlighted ? 'order highlight' : 'order' },
       el('div', { class: 'order-head' },
         el('strong', {}, `Order #${order.id}`),
@@ -760,6 +774,15 @@ function showBanner(message, kind) {
   banner.hidden = false;
 }
 
+// Fix beyond the course: the return URL only proves that Stripe sent the customer back; the order becomes PAID when
+// Stripe's payment_intent.succeeded webhook lands (CheckoutService), which can be late or, without
+// STRIPE_WEBHOOK_SECRET_KEY, never - so the banner says "being confirmed" until GET /orders shows the order as PAID
+// and renderOrders() turns it into the confirmation here. A dismissed banner stays dismissed.
+function confirmPaymentBanner(orderId) {
+  const message = `Payment received — order #${orderId} is confirmed. Thank you!`;
+  if (!$('checkout-banner').hidden && $('banner-text').textContent !== message) showBanner(message, 'success');
+}
+
 // Fix beyond the course: F3 both return URLs serve this page; the banner is filled in from the URL, which is then
 // rewritten back to "/" so a reload (or a bookmark) does not announce the payment twice.
 function wireCheckoutReturn() {
@@ -769,9 +792,9 @@ function wireCheckoutReturn() {
     const orderId = new URLSearchParams(location.search).get('orderId');
     if (orderId !== null && ORDER_ID_RE.test(orderId)) {
       state.highlightOrderId = orderId; // renderOrders() highlights it once GET /orders answers
-      showBanner(`Payment received — order #${orderId} is confirmed. Thank you!`, 'success');
+      showBanner(`Thanks — your payment is being confirmed; order #${orderId} will show as PAID in My orders.`, 'info');
     } else {
-      showBanner('Payment received — your order is confirmed. Thank you!', 'success');
+      showBanner('Thanks — your payment is being confirmed; your order will show as PAID in My orders.', 'info');
     }
   } else if (path === '/checkout-cancel') {
     showBanner('Checkout cancelled — your cart is still here.', 'info');

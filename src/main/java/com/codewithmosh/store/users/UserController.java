@@ -90,7 +90,7 @@ public class UserController {
         @ApiResponse(responseCode = "400", description = "Validation failed or the e-mail belongs to another user: a field-to-message map.",
                      content = @Content(schema = @Schema(type = "object"), examples = @ExampleObject(value = "{\"email\": \"Email is already registered.\"}"))),
         @ApiResponse(responseCode = "401", description = "Missing, expired or invalid access token (empty body).", content = @Content),
-        @ApiResponse(responseCode = "403", description = "The caller is neither this user nor an admin.",
+        @ApiResponse(responseCode = "403", description = "The caller is neither this user nor an admin, or a non-admin tries to move the account onto an e-mail listed in the server's `ADMIN_EMAILS` (`{\"error\": \"Only an admin can change an e-mail to one listed in ADMIN_EMAILS.\"}`).",
                      content = @Content(schema = @Schema(implementation = ErrorDto.class), examples = @ExampleObject(value = "{\"error\": \"You don't have access to this user.\"}"))),
         @ApiResponse(responseCode = "404", description = "No user with this ID (empty body).", content = @Content)
     })

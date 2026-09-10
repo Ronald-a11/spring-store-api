@@ -11,7 +11,9 @@
 # Usage:  BASE_URL=http://localhost:8080 bash smoke-test.sh
 #   SMOKE_ADMIN_EMAIL=<lowercase e-mail listed in the ADMIN_EMAILS of the instance
 #     under test> enables the B1 admin-bootstrap checks (skipped with a note when
-#     unset); the account it registers deletes itself at the end.
+#     unset). Run it only against a throw-away instance: the account it registers
+#     is an ADMIN on that host (random per-run password, never printed); it deletes
+#     itself at the end and the EXIT trap deletes it when the run is interrupted.
 #   SMOKE_ENV_FILE=<path> is the .env whose JWT_SECRET signs the AT-5 test tokens
 #     (default: $PROJECT_DIR/.env) - point it at the secret of a throw-away instance.
 # Re-runnable: all e-mails carry a per-run timestamp suffix.
@@ -20,7 +22,19 @@
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 TS="$(date +%s)$$"
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+# The B1 bootstrap account (an ADMIN, see above) is removed here too, so a run cut
+# short by Ctrl-C or a signal does not leave it behind; BOOT_ID is cleared once the
+# in-line DELETE has succeeded.
+BOOT_ID=""
+BOOT_TOKEN=""
+cleanup() {
+  if [ -n "$BOOT_ID" ] && [ -n "$BOOT_TOKEN" ]; then
+    curl -s -o /dev/null -X DELETE -H "Authorization: Bearer $BOOT_TOKEN" "$BASE_URL/users/$BOOT_ID"
+  fi
+  rm -rf "$TMP"
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
 
 PASS=0
 FAIL=0
@@ -74,7 +88,9 @@ head_req() {
 # $SMOKE_ENV_FILE, default $PROJECT_DIR/.env (the secret stays inside the python
 # process and is never printed). Prints nothing when no secret is readable.
 # Mirrors JwtConfig: Keys.hmacShaKeyFor(secret.getBytes()), i.e. the raw UTF-8
-# bytes of the value.
+# bytes of the value - and jjwt's choice of HMAC size from the key length (HS256
+# below 48 bytes, HS384 below 64, HS512 from 64 on), so a JWT_SECRET made with
+# "openssl rand -hex 64" (README) verifies as well as one from "-base64 32".
 mint_jwt() {
   python - "${SMOKE_ENV_FILE:-$PROJECT_DIR/.env}" "$1" <<'PY'
 import sys, re, json, hmac, hashlib, base64
@@ -90,9 +106,11 @@ except OSError:
 if not secret:
     sys.exit()
 def b64(b): return base64.urlsafe_b64encode(b).rstrip(b'=').decode()
-h = b64(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(',', ':')).encode())
+key = secret.encode()
+alg, digest = ('HS256', hashlib.sha256) if len(key) < 48 else ('HS384', hashlib.sha384) if len(key) < 64 else ('HS512', hashlib.sha512)
+h = b64(json.dumps({"alg": alg, "typ": "JWT"}, separators=(',', ':')).encode())
 p = b64(claims.encode())
-s = b64(hmac.new(secret.encode(), (h + '.' + p).encode(), hashlib.sha256).digest())
+s = b64(hmac.new(key, (h + '.' + p).encode(), digest).digest())
 sys.stdout.write(h + '.' + p + '.' + s)
 PY
 }
@@ -237,6 +255,11 @@ EMAIL_A="alice.$TS@example.com"
 EMAIL_B="bob.$TS@example.com"
 EMAIL_ADMIN="admin.$TS@example.com"
 PASS_A="secret123"
+# The B1 bootstrap account is an ADMIN on the instance under test, so it never
+# gets the fixed PASS_A: a random 20-character password per run (RegisterUserRequest
+# allows 6 to 25), kept in this shell and never printed.
+BOOT_PASS="$(python -c 'import secrets; print(secrets.token_hex(10))' 2>/dev/null)"
+[ -n "$BOOT_PASS" ] || BOOT_PASS="b${TS:0:20}x"
 
 req POST "/users" "{\"name\":\"Alice $TS\",\"email\":\"$EMAIL_A\",\"password\":\"$PASS_A\"}"
 expect_status "POST /users registers a user (201, permitAll)" 201
@@ -1173,12 +1196,15 @@ section "Round-5: admin bootstrap, categories, checkout return, health, storefro
 ############################################################
 # --- B4: GET /actuator/health is the health-check path; nothing else is exposed ---
 # spring-boot-starter-actuator with management.endpoints.web.exposure.include=health
-# and show-details=never; SwaggerSecurityRules permits GET /actuator/health only.
+# and show-details=never; SwaggerSecurityRules permits GET and HEAD /actuator/health only.
 req GET "/actuator/health"
 expect_status "B4: GET /actuator/health anonymous is 200" 200
 expect_eq "B4: /actuator/health body is exactly {\"status\":\"UP\"} (show-details: never)" \
   "$(pyq "$BODY" "d == {'status': 'UP'}")" "True"
 expect_header_contains "B4: /actuator/health is served as JSON" "^content-type: *application/.*json"
+# CR-3: uptime monitors that probe with HEAD must not see 401.
+head_req "/actuator/health"
+expect_status "B4: HEAD /actuator/health anonymous is 200 (read-only twin of GET)" 200
 req GET "/actuator"
 expect_status "B4: GET /actuator anonymous is 401 (only the health path is public)" 401
 req GET "/actuator/health/db"
@@ -1198,8 +1224,11 @@ expect_eq "B2: GET /categories carries the V5 names in order" \
   "$(pyq "$BODY" "[c['name'] for c in d]")" "['Produce', 'Dairy', 'Bakery', 'Meat & Seafood', 'Pantry Staples', 'Beverages']"
 expect_eq "B2: every entry is exactly {id: int, name: str}" \
   "$(pyq "$BODY" "all(set(c) == {'id', 'name'} and isinstance(c['id'], int) and isinstance(c['name'], str) for c in d)")" "True"
+# CR-3: HEAD is permitted alongside GET, as for /products/**.
+head_req "/categories"
+expect_status "B2: HEAD /categories anonymous is 200 (read-only twin of GET)" 200
 req POST "/categories"
-expect_status "B2: POST /categories anonymous is 401 (GET only)" 401
+expect_status "B2: POST /categories anonymous is 401 (GET and HEAD only)" 401
 
 # --- B3: Stripe's return URLs serve the storefront page ---
 # StripePaymentGateway builds websiteUrl + "/checkout-success?orderId=<n>" and
@@ -1244,13 +1273,24 @@ expect_body_contains "B5: the API description mentions ADMIN_EMAILS" "ADMIN_EMAI
 # --- F1-F7: the storefront's new markup, script and styles are served ---
 req GET "/"
 for needle in 'id="checkout-banner"' 'id="banner-text"' 'id="banner-dismiss"' 'id="product-count"' \
-              'href="/categories"' 'href="/actuator/health"' 'href="/products"'; do
+              'href="/categories"' 'href="/actuator/health"' 'href="/products"' \
+              'id="checkout-region" role="status"'; do
   expect_body_contains "F3/F7: GET / has $needle" "$needle"
 done
+# CR-6: the live regions are always-present wrappers; the hidden banner and status line carry no role of their own.
+case "$BODY" in
+  *'id="checkout-banner" class="banner" hidden'*) ok "CR-6: the checkout banner itself is hidden without role=status (the wrapper is the live region)" ;;
+  *) bad "CR-6: the checkout banner itself is hidden without role=status" "expected 'id=\"checkout-banner\" class=\"banner\" hidden' in GET /" ;;
+esac
+case "$BODY" in
+  *'id="products-status" class="status" hidden'*) ok "CR-6: the catalogue status line is hidden without role=status (the wrapper is the live region)" ;;
+  *) bad "CR-6: the catalogue status line is hidden without role=status" "expected 'id=\"products-status\" class=\"status\" hidden' in GET /" ;;
+esac
 
 req GET "/app.js"
 expect_status "F: GET /app.js is 200" 200
 for needle in "'/categories'" 'CATEGORY_ICONS' 'Payment received' 'is confirmed. Thank you!' \
+              'is being confirmed' 'function confirmPaymentBanner' \
               'Checkout cancelled' 'No products yet.' 'qty-input' "history.replaceState(null, '', '/')" \
               "'aria-hidden': 'true'" 'Tyrone Grocery Shop'; do
   expect_body_contains "F1-F7: app.js has $needle" "$needle"
@@ -1282,24 +1322,32 @@ fi
 # Only when the caller names such an e-mail: the value has to be in the
 # ADMIN_EMAILS of the instance under test, which this script cannot know.
 # A normal e-mail still registers as USER ("GET /admin/hello as a normal USER
-# is 403" above). The account deletes itself at the end, so the same e-mail can
-# be registered again on the next run; a leftover from an interrupted run (same
-# e-mail and password) is removed first.
+# is 403" above). The account is an ADMIN with a random per-run password
+# (BOOT_PASS); it deletes itself at the end and the EXIT trap (cleanup) deletes
+# it when the run is interrupted, so the same e-mail can be registered again on
+# the next run. A leftover that survived a killed run is removed as the
+# SQL-promoted admin (local runs, where MYSQLQ works); elsewhere delete it by hand.
 if [ -n "${SMOKE_ADMIN_EMAIL:-}" ]; then
-  req POST "/auth/login" "{\"email\":\"$SMOKE_ADMIN_EMAIL\",\"password\":\"$PASS_A\"}"
-  if [ "$STATUS" = "200" ]; then
-    LEFTOVER_TOKEN="$(pyq "$BODY" "d['token']")"
-    req GET "/auth/me" "" "$LEFTOVER_TOKEN"
-    LEFTOVER_ID="$(pyq "$BODY" "d['id']")"
-    req DELETE "/users/$LEFTOVER_ID" "" "$LEFTOVER_TOKEN"
-    expect_status "B1: removed the leftover $SMOKE_ADMIN_EMAIL account from an earlier run" 200
+  # CR-1: a USER cannot move an account onto a listed address - AdminBootstrap
+  # would promote it at the next start - so UserService.updateUser answers 403.
+  req PUT "/users/$USER_A_ID" "{\"name\":\"Alice Updated\",\"email\":\"$SMOKE_ADMIN_EMAIL\"}" "$TOKEN_A"
+  expect_status "B1: PUT /users/{id} to an ADMIN_EMAILS address as a USER is 403" 403
+  expect_body_contains "B1: ... with the reason" "Only an admin can change an e-mail to one listed in ADMIN_EMAILS."
+  req GET "/users/$USER_A_ID" "" "$TOKEN_A"
+  expect_eq "B1: the refused PUT changed nothing (e-mail)" "$(pyq "$BODY" "d['email']")" "$EMAIL_A"
+
+  req POST "/users" "{\"name\":\"Bootstrap Admin $TS\",\"email\":\"$SMOKE_ADMIN_EMAIL\",\"password\":\"$BOOT_PASS\"}"
+  if [ "$STATUS" = "400" ] && [ -n "$TOKEN_ADMIN" ]; then
+    req GET "/users" "" "$TOKEN_ADMIN"
+    LEFTOVER_ID="$(pyq "$BODY" "next((u['id'] for u in d if u['email'] == '$SMOKE_ADMIN_EMAIL'), '')")"
+    req DELETE "/users/$LEFTOVER_ID" "" "$TOKEN_ADMIN"
+    expect_status "B1: removed the leftover $SMOKE_ADMIN_EMAIL account from a killed run" 200
+    req POST "/users" "{\"name\":\"Bootstrap Admin $TS\",\"email\":\"$SMOKE_ADMIN_EMAIL\",\"password\":\"$BOOT_PASS\"}"
   fi
-
-  req POST "/users" "{\"name\":\"Bootstrap Admin $TS\",\"email\":\"$SMOKE_ADMIN_EMAIL\",\"password\":\"$PASS_A\"}"
   expect_status "B1: POST /users registers the ADMIN_EMAILS account ($SMOKE_ADMIN_EMAIL)" 201
-  BOOT_ID="$(pyq "$BODY" "d['id']")"
+  [ "$STATUS" = "201" ] && BOOT_ID="$(pyq "$BODY" "d['id']")"
 
-  req POST "/auth/login" "{\"email\":\"$SMOKE_ADMIN_EMAIL\",\"password\":\"$PASS_A\"}"
+  req POST "/auth/login" "{\"email\":\"$SMOKE_ADMIN_EMAIL\",\"password\":\"$BOOT_PASS\"}"
   expect_status "B1: POST /auth/login as the ADMIN_EMAILS account is 200" 200
   BOOT_TOKEN="$(pyq "$BODY" "d['token']")"
 
@@ -1312,6 +1360,7 @@ if [ -n "${SMOKE_ADMIN_EMAIL:-}" ]; then
 
   req DELETE "/users/$BOOT_ID" "" "$BOOT_TOKEN"
   expect_status "B1: cleanup - the ADMIN_EMAILS account deleted itself (re-runnable)" 200
+  [ "$STATUS" = "200" ] && BOOT_ID="" # done; nothing left for the EXIT trap
 else
   printf 'SKIP  B1: admin bootstrap - set SMOKE_ADMIN_EMAIL to a lowercase e-mail listed in the ADMIN_EMAILS of the instance under test\n'
 fi

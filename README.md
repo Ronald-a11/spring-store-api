@@ -290,13 +290,22 @@ really will drop every object in `store_api` on the container. Only the containe
 
 ### Making an admin
 
-Put the e-mail in `ADMIN_EMAILS` (`.env` locally, a service variable on Railway;
-comma-separated, case-insensitive, trimmed) and start the app: an e-mail on the list
-registers with the `ADMIN` role (`POST /users` or the storefront's *Register*), and an
-account that already exists is promoted once the application is ready — `AdminBootstrap`
-logs `ADMIN_EMAILS lists N e-mail(s); promoted M existing user(s) to ADMIN: [...]` at
-`INFO`; an empty or unset variable is a no-op. Log in again afterwards — the role is baked
-into the access token.
+Register the account first (`POST /users` or the storefront's *Register*), then put its
+e-mail in `ADMIN_EMAILS` (`.env` locally, a service variable on Railway; comma-separated,
+case-insensitive, trimmed) and restart or redeploy: `AdminBootstrap` promotes listed
+accounts once the application is ready and logs `ADMIN_EMAILS lists N e-mail(s); promoted M
+existing user(s) to ADMIN: [...]` at `INFO` (a lookup or save that fails is logged at
+`ERROR` and skipped rather than ending the start-up; an empty or unset variable is a no-op).
+Log in again afterwards — the role is baked into the access token.
+
+That order matters. There is no e-mail verification, so a listed e-mail that has no
+account yet goes to whoever registers it — an e-mail on the list registers straight with
+the `ADMIN` role — and on a public host that is a race against anyone who knows or guesses
+the address (the git history shows the commit author's). Once the real account exists the
+`UNIQUE` index on `users.email` closes that door, and a `USER` cannot move an account onto
+a listed address either: `PUT /users/{id}` answers `403 {"error": "Only an admin can change
+an e-mail to one listed in ADMIN_EMAILS."}`. Take an e-mail off the list when its account
+is deleted or renamed, for the same reason.
 
 The course's way still works: register through `POST /users`, then promote the account
 in the Docker database:
@@ -324,7 +333,8 @@ does can also be done from Swagger UI or curl:
    UUID in `localStorage`; the +/−, *Remove* and *Clear* controls map to the
    `/carts/{cartId}/items` endpoints, and the quantity box between +/− takes a typed value
    (clamped to 1..1000 and sent with `PUT /carts/{cartId}/items/{productId}` 300 ms after
-   the last keystroke). A stale UUID (unknown cart, `404`) or a stored value
+   the last keystroke; a digit typed while that request is in flight survives the cart's
+   re-render). A stale UUID (unknown cart, `404`) or a stored value
    that is not a UUID at all (`400`) is dropped and a new cart is created on the next add.
 3. **Register / log in.** The dialog posts to `POST /users` and `POST /auth/login`; the access
    token is kept in `localStorage` and its payload is decoded only to show your name and role.
@@ -337,16 +347,19 @@ does can also be done from Swagger UI or curl:
    checkout session (Stripe is not configured on this demo) — the order was not created.*
    Any other `500` is shown with the server's own message. With Stripe configured, Stripe
    sends you back to `/checkout-success?orderId=<n>` or `/checkout-cancel` — both serve this
-   page — where a dismissable banner confirms the payment (and highlights that order in
-   *My orders*) or says the cart is still there, and the URL is rewritten back to `/`.
+   page — where a dismissable banner says *your payment is being confirmed* (and highlights
+   that order in *My orders*) or says the cart is still there, and the URL is rewritten back
+   to `/`. The order is `PENDING` until Stripe's webhook reaches `POST /checkout/webhook`, so
+   the banner only turns into *Payment received — order #<n> is confirmed* once `GET /orders`
+   reports it `PAID`; without `STRIPE_WEBHOOK_SECRET_KEY` it stays *being confirmed*.
 5. **My orders.** Visible when logged in; lists `GET /orders` newest first with a coloured
    status badge (`PENDING` amber, `PAID` green, `FAILED`/`CANCELED` red), the local date,
    the total and the items folded behind *N items*.
 6. **Admin.** When the token's role is `ADMIN` the page shows an *add product* form
    (`POST /products`, categories from `GET /categories`) and a *Delete* button on every
    product card (`DELETE /products/{id}`; a product that belongs to an order answers `409`).
-   To become an admin, list your e-mail in `ADMIN_EMAILS` (or run the SQL `UPDATE`) as in
-   [Making an admin](#making-an-admin) and log in again.
+   To become an admin, register, then list your e-mail in `ADMIN_EMAILS` and restart (or run
+   the SQL `UPDATE`) as in [Making an admin](#making-an-admin) and log in again.
 
 If the first request takes more than two seconds (a sleeping demo host), the page shows
 *Waking up the server…* until `GET /products` answers; when that request fails the reason
@@ -389,14 +402,14 @@ lists them all.
 | Auth | The app refuses to start when `JWT_SECRET` is blank or shorter than 32 bytes (256 bits); the value is never logged | A blank secret booted a "healthy" app in which every `POST /auth/login` returned `401` (`WeakKeyException` at the first login), so a deployment health check could not tell |
 | Docs | Swagger UI documents every endpoint: tags, summaries, status codes, examples; Authorize persists across reloads; public endpoints show no lock | The course strips its OpenAPI annotations at the end, so the generated docs listed bare paths with no explanation, and with the global `bearerAuth` requirement every operation showed a lock — public ones included |
 | Web UI | The home page is a small storefront (vanilla HTML/JS) that uses the public and authenticated endpoints; Swagger UI stays at `/swagger-ui/index.html`. `GET /app.js`, `/app.css` and `/favicon.ico` are permitted (GET only) so the assets load anonymously | The root URL only said "the API is running"; the storefront exercises the whole flow — browse, cart, register, log in, check out, order history, admin product management — from a browser without Swagger or curl (see [Using the storefront](#using-the-storefront)) |
-| Users | `ADMIN_EMAILS` environment variable (`admin.emails`; comma-separated, trimmed, case-insensitive): a listed e-mail registers with the `ADMIN` role, and `AdminBootstrap` promotes listed accounts that already exist once the application is ready (`INFO` log with the count and e-mails; an empty variable is a no-op). The role takes effect at the next login | The course grants `ADMIN` only with `UPDATE users SET role = 'ADMIN' WHERE email = '...'` in a database client, which a Railway deployment has no convenient access to; the first admin can now be created by registering and setting one service variable |
-| Products | `GET /categories` (public, `GET` only) returns `[{"id": 1, "name": "Produce"}, ...]` ordered by id (`CategoryRepository.findAll(Sort)`), documented under **Products** in Swagger UI | `GET /products` only carries a `categoryId`, so a client had to hard-code the seeded category names; the storefront's filter chips and admin form now read them from the API |
-| Payments | `GET /checkout-success` and `GET /checkout-cancel` (public, `GET` only) serve the storefront page; `websiteUrl`, the origin Stripe redirects back to, is `${WEBSITE_URL:...}` in both profiles and the dev default is `http://localhost:8080` (the course had `http://localhost:4242`) | Stripe sends the customer to `websiteUrl + "/checkout-success?orderId=<n>"` or `/checkout-cancel`, which the course never mapped, so a paying customer landed on a blank `401`; the dev default pointed at a front end that does not exist here and the prod value could only be changed by rebuilding the image |
-| Common | `spring-boot-starter-actuator` with only `health` exposed and `show-details: never`; `GET /actuator/health` is public, everything else under `/actuator` stays `401`; `railway.json` health-checks `/actuator/health` | Railway health-checked `GET /`, a Thymeleaf page that renders even when the database is unreachable; `/actuator/health` answers `200 {"status":"UP"}` only while the MySQL connection works and `503 {"status":"DOWN"}` otherwise (Boot's default status mapping), and the exposure is limited so no environment, bean or mapping details leak |
+| Users | `ADMIN_EMAILS` environment variable (`admin.emails`; comma-separated, trimmed, case-insensitive): a listed e-mail registers with the `ADMIN` role, and `AdminBootstrap` promotes listed accounts that already exist once the application is ready (`INFO` log with the count and e-mails; an empty variable is a no-op; a lookup or save that fails is logged at `ERROR` and skipped instead of ending the start-up). The role takes effect at the next login. Because nothing verifies e-mail ownership, the documented order is register first, then list; and `PUT /users/{id}` refuses to move a `USER`'s account onto a listed address (`403 {"error": "Only an admin can change an e-mail to one listed in ADMIN_EMAILS."}`), which `AdminBootstrap` would otherwise promote at the next start | The course grants `ADMIN` only with `UPDATE users SET role = 'ADMIN' WHERE email = '...'` in a database client, which a Railway deployment has no convenient access to; the first admin can now be created by registering and setting one service variable. An exception from the ready-event listener would close the context and take down an otherwise healthy deployment |
+| Products | `GET /categories` (public, `GET` and `HEAD` only) returns `[{"id": 1, "name": "Produce"}, ...]` ordered by id (`CategoryRepository.findAll(Sort)`), documented under **Products** in Swagger UI | `GET /products` only carries a `categoryId`, so a client had to hard-code the seeded category names; the storefront's filter chips and admin form now read them from the API; `HEAD` is the read-only twin of `GET` here as for `/products/**` |
+| Payments | `GET /checkout-success` and `GET /checkout-cancel` (public, `GET` only) serve the storefront page; `websiteUrl`, the origin Stripe redirects back to, is `${WEBSITE_URL:...}` in both profiles and the dev default is `http://localhost:8080` (the course had `http://localhost:4242`); a trailing slash on the value is stripped before the return URLs are built | Stripe sends the customer to `websiteUrl + "/checkout-success?orderId=<n>"` or `/checkout-cancel`, which the course never mapped, so a paying customer landed on a blank `401`; the dev default pointed at a front end that does not exist here and the prod value could only be changed by rebuilding the image. `WEBSITE_URL=https://host/` would have produced `https://host//checkout-success`, which Spring Security's firewall rejects with `400` |
+| Common | `spring-boot-starter-actuator` with only `health` exposed and `show-details: never`; `GET /actuator/health` is public (`HEAD` too, for monitors that probe with it), everything else under `/actuator` stays `401`; `railway.json` health-checks `/actuator/health` | Railway health-checked `GET /`, a Thymeleaf page that renders even when the database is unreachable; `/actuator/health` answers `200 {"status":"UP"}` only while the MySQL connection works and `503 {"status":"DOWN"}` otherwise (Boot's default status mapping), and the exposure is limited so no environment, bean or mapping details leak |
 | Web UI | Category chips and the admin *Category* select are built from `GET /categories` (one chip per category, label = `name`, in id order, plus any `categoryId` the catalogue uses that the list does not know), each with a decorative emoji (`aria-hidden`) that is also shown on the product cards; the seed id→name map in `app.js` is now only the fallback when that request fails | The page hard-coded the `V5` category names, so a category added or renamed in the database showed as *Category 7*; the icons make the chips and cards scannable |
-| Web UI | `/checkout-success?orderId=<n>` and `/checkout-cancel` (served as the storefront page) show a dismissable banner — *Payment received — order #<n> is confirmed. Thank you!* / *Checkout cancelled — your cart is still here.* — highlight and expand that order in *My orders* when logged in, and rewrite the URL back to `/` with `history.replaceState` so a reload does not repeat it; `orderId` is only used when it is all digits | Stripe sends the customer back to those URLs after paying or backing out; before, they landed on a bare `401`/`404` with no confirmation that the payment went through |
+| Web UI | `/checkout-success?orderId=<n>` and `/checkout-cancel` (served as the storefront page) show a dismissable banner — *Thanks — your payment is being confirmed; order #<n> will show as PAID in My orders.* (amber), which becomes *Payment received — order #<n> is confirmed. Thank you!* (green) once `GET /orders` reports that order `PAID` / *Checkout cancelled — your cart is still here.* — highlight and expand that order in *My orders* when logged in, and rewrite the URL back to `/` with `history.replaceState` so a reload does not repeat it; `orderId` is only used when it is all digits. The banner and the catalogue status line sit inside always-present `role="status"` wrappers | Stripe sends the customer back to those URLs after paying or backing out; before, they landed on a bare `401`/`404` with no confirmation that the payment went through. The order only becomes `PAID` when the `payment_intent.succeeded` webhook arrives, so a banner that said *confirmed* straight from the URL contradicted the `PENDING` badge under it while the webhook was late (or, without `STRIPE_WEBHOOK_SECRET_KEY`, for good). A `hidden` element that is unhidden with its text already in it is not announced by screen readers; changes inside a live region that is already in the accessibility tree are |
 | Web UI | *My orders* lists newest first (`createdAt`, then id) with a coloured status badge (`PENDING` amber, `PAID` green, `FAILED`/`CANCELED` red), the local date (`toLocaleString`) and the items folded behind a `<details>` | A long order history was one flat wall of list items |
-| Web UI | The cart quantity is an editable `<input type="number" min="1" max="1000">` between the +/− buttons: typing is debounced 300 ms, leaving the box commits at once, the value is clamped to 1..1000 before `PUT /carts/{cartId}/items/{productId}`, and the box keeps focus while the cart re-renders | Going from 1 to 24 took 23 clicks, and the API's `@Max(1000)` answered `400` for anything typed above it |
+| Web UI | The cart quantity is an editable `<input type="number" min="1" max="1000">` between the +/− buttons: typing is debounced 300 ms, leaving the box commits at once, the value is clamped to 1..1000 before `PUT /carts/{cartId}/items/{productId}`, and the box keeps focus, the value being typed and its pending commit while the cart re-renders | Going from 1 to 24 took 23 clicks, and the API's `@Max(1000)` answered `400` for anything typed above it; a digit typed while the previous commit's round-trip was in flight was wiped by the re-render, and the detached box's timer still fired |
 | Web UI | Empty and error states: an empty catalogue says *No products yet*, a search or filter with no hits says *No products match*, and an unreachable API on the first load shows the reason with a *Retry* button (the *Waking up the server…* hint after 2 s stays) | A blank grid could mean loading, empty or broken |
 | Web UI | Sticky header on wide screens (the sticky cart panel is offset by the header's measured height), a product count in the toolbar (*10 products*, *3 of 10 products* while filtering), footer links to Swagger UI, `/products`, `/categories` and `/actuator/health`, and the *Log in / Register* dialog closes on Escape (explicit handler next to the native cancel) and returns focus to the button that opened it | Small usability gaps that showed as soon as the catalogue grew past one screen; keyboard users lost their place after closing the dialog |
 
@@ -451,8 +464,8 @@ variables on the API service:
 | `SPRING_DATASOURCE_PASSWORD` | the MySQL service's `MYSQLPASSWORD` |
 | `JWT_SECRET` | `openssl rand -base64 32` (or `openssl rand -hex 64`; any value of at least 32 bytes) — required; the app refuses to start when it is blank or too short, so a forgotten value fails the health check instead of producing a deployment that cannot log anyone in |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET_KEY` | optional; leave unset until Stripe is wired up (checkout returns the payment error, startup logs a `WARN`) |
-| `ADMIN_EMAILS` | optional; comma-separated e-mails (case-insensitive) that register with the `ADMIN` role and are promoted at start-up when the account already exists — the way to get the first admin without a database client (see [Making an admin](#making-an-admin)). The role takes effect at the next login |
-| `WEBSITE_URL` | `https://<the service's public domain>` — the origin Stripe sends the customer back to after checkout (`/checkout-success?orderId=<n>` and `/checkout-cancel`, both served by the storefront); optional, but without it `application-prod.yaml` falls back to the course's `https://mystore.com` placeholder |
+| `ADMIN_EMAILS` | optional; comma-separated e-mails (case-insensitive) that are promoted to `ADMIN` at start-up when the account already exists (and register with the role when it does not) — the way to get the first admin without a database client. Register the account first, then set the variable and redeploy: a listed e-mail with no account goes to whoever registers it (see [Making an admin](#making-an-admin)). The role takes effect at the next login |
+| `WEBSITE_URL` | `https://<the service's public domain>`, without a trailing slash (one is stripped anyway) — the origin Stripe sends the customer back to after checkout (`/checkout-success?orderId=<n>` and `/checkout-cancel`, both served by the storefront); optional, but without it `application-prod.yaml` falls back to the course's `https://mystore.com` placeholder |
 | `JAVA_OPTS` | optional; the image defaults to `-XX:MaxRAMPercentage=50 -XX:+ExitOnOutOfMemoryError` — the heap is capped at 50% of the service's memory limit (512 MiB at 1 GB; the live heap is ~40 MiB) and an `OutOfMemoryError` exits the JVM so the `ON_FAILURE` restart policy replaces it. 50% rather than 75% because the JVM's non-heap footprint is ~290 MiB: a 768 MiB heap could grow past a 1 GiB limit and be OOM-killed by the kernel (exit 137) before an `OutOfMemoryError` is thrown |
 
 `PORT` is set to `8080` on the live service, the same value the entrypoint falls back to
@@ -460,7 +473,7 @@ variables on the API service:
 public domain targets; Railway injects `PORT` on its own, so the variable is optional — if
 you keep it, it must match the domain's target port (service **Settings → Networking**).
 Flyway applies `V1`–`V6` to the Railway database on the first start, and the health check is
-`GET /actuator/health`, which is public and answers `200 {"status":"UP"}` only while the
+`GET /actuator/health`, which is public (`HEAD` as well) and answers `200 {"status":"UP"}` only while the
 MySQL connection works (`503 {"status":"DOWN"}` otherwise; nothing else under `/actuator` is
 exposed, and `GET /` / `HEAD /` stay public too). `websiteUrl` in `application-prod.yaml` is
 `${WEBSITE_URL:https://mystore.com}`, so with `WEBSITE_URL` set to the public origin Stripe
