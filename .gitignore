@@ -5,6 +5,9 @@ target/
 !**/src/test/**/target/
 .env
 
+### Claude Code (worktrees, local settings) ###
+.claude/
+
 ### STS ###
 .apt_generated
 .classpath

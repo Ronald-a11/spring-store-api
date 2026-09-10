@@ -348,11 +348,13 @@ These are unchanged because the course does not address them and fixing them wou
 
 The repo ships a multi-stage `Dockerfile` (JDK 25 + Maven wrapper build stage, JRE 25
 runtime, non-root user, both base images pinned by digest so a rebuild cannot silently
-change the JDK) and a `railway.json` that makes Railway build from it, health-check `GET /`
-and restart on failure. Create a Railway project from this GitHub repo (Railway builds
-`main`, so the `Dockerfile`, `railway.json` and `.railwayignore` must be committed there) —
-or deploy from the CLI: run `railway init` or `railway link` **in this directory first** and
-pass `--service store-api` to every `railway up`, `railway variable set` and `railway domain`,
+change the JDK, and the build stage pins the SHA-256 of the Maven distribution the
+wrapper downloads, so a tampered download fails the build) and a `railway.json` that
+makes Railway build from it, health-check `GET /` and restart on failure. Create a
+Railway project from this GitHub repo (Railway builds `main`, so the `Dockerfile`,
+`railway.json` and `.railwayignore` must be committed there) — or deploy from the CLI:
+run `railway init` or `railway link` **in this directory first** and pass
+`--service store-api` to every `railway up`, `railway variable set` and `railway domain`,
 because the CLI otherwise falls back to the nearest linked parent folder, which may belong
 to another project; `.railwayignore` keeps `.env`, `target/` and `.git/` out of the upload —
 add a **MySQL** service next to it, and set these variables on the API service:
@@ -365,12 +367,21 @@ add a **MySQL** service next to it, and set these variables on the API service:
 | `SPRING_DATASOURCE_PASSWORD` | the MySQL service's `MYSQLPASSWORD` |
 | `JWT_SECRET` | `openssl rand -base64 32` (or `openssl rand -hex 64`; any value of at least 32 bytes) — required; the app refuses to start when it is blank or too short, so a forgotten value fails the health check instead of producing a deployment that cannot log anyone in |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET_KEY` | optional; leave unset until Stripe is wired up (checkout returns the payment error, startup logs a `WARN`) |
+| `JAVA_OPTS` | optional; the image defaults to `-XX:MaxRAMPercentage=50 -XX:+ExitOnOutOfMemoryError` — the heap is capped at 50% of the service's memory limit (512 MiB at 1 GB; the live heap is ~40 MiB) and an `OutOfMemoryError` exits the JVM so the `ON_FAILURE` restart policy replaces it. 50% rather than 75% because the JVM's non-heap footprint is ~290 MiB: a 768 MiB heap could grow past a 1 GiB limit and be OOM-killed by the kernel (exit 137) before an `OutOfMemoryError` is thrown |
 
 Do not set `PORT`: Railway injects it and the container's entrypoint passes it to Spring as
 `--server.port=${PORT:-8080}` (Spring Boot does not read `PORT` by itself). Flyway applies
 `V1`–`V6` to the Railway database on the first start, and the health check is `GET /`, which
 is public and serves the home page. `websiteUrl` in `application-prod.yaml` is still the
 course's `https://mystore.com` placeholder for the Stripe redirect.
+
+Set an explicit **memory limit** on the API service (service **Settings → Resource
+limits**; 1 GB is plenty): the JVM sizes its heap from the container's cgroup limit, and
+without a per-service limit that is the plan maximum, so RAM — which Railway bills per
+GB — is otherwise unbounded. The entrypoint `exec`s `java`, so it runs as PID 1 and receives
+the `SIGTERM` Railway sends on stop and redeploy; Spring Boot's graceful shutdown (the
+default since 3.4) then finishes in-flight requests before the container exits instead of
+the JVM being killed after the grace period.
 
 Swagger UI (`/swagger-ui/index.html`) and the OpenAPI document (`/v3/api-docs`) stay public
 in prod on purpose — this is a portfolio API. To hide them, add
