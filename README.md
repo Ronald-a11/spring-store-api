@@ -268,6 +268,8 @@ Swagger UI: <http://localhost:8080/swagger-ui.html>
 `mvn clean verify` (or `mvn clean package`) also needs the container running: the only
 test is a `@SpringBootTest` context load, which opens a real connection and runs Flyway.
 Start it first with `docker start store-mysql`, or the build fails on the datasource.
+The test supplies its own throw-away `spring.jwt.secret`, so it needs neither `.env` nor a
+`JWT_SECRET` in the environment (the startup check would otherwise fail the context load).
 
 The `flyway-maven-plugin` block in `pom.xml` is pointed at port **3307** as well, so an
 explicit `mvn flyway:info` / `flyway:migrate` targets the Docker container and never the
@@ -326,6 +328,7 @@ with a one-line comment starting with `// Fix beyond the course:` (or
 | Payments | `WARN` logged at startup when `STRIPE_SECRET_KEY` is blank | The app started silently with Stripe unconfigured and only failed at the first checkout |
 | Users | `@Builder.Default` on `User.favoriteProducts` | Lombok's builder ignored the field initialiser, so `User.builder().build()` had a `null` set and `addFavoriteProduct` threw `NullPointerException` |
 | Common | `GET /` is public and the home page links to Swagger UI and `/products` | No security rule permitted `/`, so opening the root URL in a browser returned a blank `401` and looked like the app was down |
+| Auth | The app refuses to start when `JWT_SECRET` is blank or shorter than 32 bytes (256 bits); the value is never logged | A blank secret booted a "healthy" app in which every `POST /auth/login` returned `401` (`WeakKeyException` at the first login), so a deployment health check could not tell |
 
 ### Still as in the course (known limitations)
 
@@ -338,4 +341,46 @@ These are unchanged because the course does not address them and fixing them wou
 - **`refreshToken` cookie has no `SameSite` attribute.** The course sets `HttpOnly`, `Secure` and `Path=/auth/refresh` only.
 - **`mvn flyway:clean` is enabled** (`cleanDisabled=false`, the course default) and drops every object in the Docker dev database `store_api`.
 - **Stripe API version.** stripe-java 33.4.2 pins Stripe API version `2026-08-26.dahlia`. If the Stripe account or webhook endpoint is on another version, the webhook payload deserialises to nothing and orders stay `PENDING` — the Stripe CLI (`stripe listen`) uses the account's default version, so check it under **Developers > API version**.
-- **Blank `JWT_SECRET` starts the app but breaks login.** Every `POST /auth/login` returns `401` and the log shows a `WeakKeyException`; there is no startup check. Generate one with `openssl rand -base64 32`.
+
+---
+
+## Deploying to Railway
+
+The repo ships a multi-stage `Dockerfile` (JDK 25 + Maven wrapper build stage, JRE 25
+runtime, non-root user, both base images pinned by digest so a rebuild cannot silently
+change the JDK) and a `railway.json` that makes Railway build from it, health-check `GET /`
+and restart on failure. Create a Railway project from this GitHub repo (Railway builds
+`main`, so the `Dockerfile`, `railway.json` and `.railwayignore` must be committed there) —
+or deploy from the CLI: run `railway init` or `railway link` **in this directory first** and
+pass `--service store-api` to every `railway up`, `railway variable set` and `railway domain`,
+because the CLI otherwise falls back to the nearest linked parent folder, which may belong
+to another project; `.railwayignore` keeps `.env`, `target/` and `.git/` out of the upload —
+add a **MySQL** service next to it, and set these variables on the API service:
+
+| Variable | Value |
+| --- | --- |
+| `SPRING_PROFILES_ACTIVE` | `prod` — already the image default (`ENV` in the `Dockerfile`), so setting it on the service is optional but harmless |
+| `SPRING_DATASOURCE_URL` | `jdbc:mysql://<host>:<port>/<database>` built from the MySQL service's `MYSQLHOST`, `MYSQLPORT` and `MYSQLDATABASE` (reference them as `${{MySQL.MYSQLHOST}}` etc.) |
+| `SPRING_DATASOURCE_USERNAME` | the MySQL service's `MYSQLUSER` |
+| `SPRING_DATASOURCE_PASSWORD` | the MySQL service's `MYSQLPASSWORD` |
+| `JWT_SECRET` | `openssl rand -base64 32` (or `openssl rand -hex 64`; any value of at least 32 bytes) — required; the app refuses to start when it is blank or too short, so a forgotten value fails the health check instead of producing a deployment that cannot log anyone in |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET_KEY` | optional; leave unset until Stripe is wired up (checkout returns the payment error, startup logs a `WARN`) |
+
+Do not set `PORT`: Railway injects it and the container's entrypoint passes it to Spring as
+`--server.port=${PORT:-8080}` (Spring Boot does not read `PORT` by itself). Flyway applies
+`V1`–`V6` to the Railway database on the first start, and the health check is `GET /`, which
+is public and serves the home page. `websiteUrl` in `application-prod.yaml` is still the
+course's `https://mystore.com` placeholder for the Stripe redirect.
+
+Swagger UI (`/swagger-ui/index.html`) and the OpenAPI document (`/v3/api-docs`) stay public
+in prod on purpose — this is a portfolio API. To hide them, add
+`springdoc.api-docs.enabled: false` and `springdoc.swagger-ui.enabled: false` to
+`application-prod.yaml`.
+
+A clean prod start logs no `ERROR` lines and exactly these `WARN` lines, all harmless:
+Flyway "MySQL 8.4 is newer than this version of Flyway", `StripeConfig` "STRIPE_SECRET_KEY
+is not set" (until Stripe is configured), "Global AuthenticationManager configured with an
+AuthenticationProvider bean", "spring.jpa.open-in-view is enabled by default", and the two
+SpringDoc notices that `/v3/api-docs` and `/swagger-ui.html` are enabled in production.
+
+Live: <url>

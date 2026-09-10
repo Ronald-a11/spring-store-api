@@ -1,0 +1,16 @@
+# Build output and VCS
+target/
+.git/
+.github/
+
+# Local tooling and IDE state
+.claude/
+.idea/
+.run/
+.vscode/
+
+# Secrets and local-only files (also excludes .env.example)
+.env
+.env.*
+scripts/
+*.md

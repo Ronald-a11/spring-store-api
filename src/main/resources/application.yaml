@@ -2,7 +2,9 @@ spring:
   application:
     name: store
   jwt:
-    secret: ${JWT_SECRET}
+    # Fix beyond the course: empty default so an *absent* JWT_SECRET fails JwtConfig's startup
+    # check as "not set" instead of Spring keeping the literal "${JWT_SECRET}" as a 13-byte key.
+    secret: ${JWT_SECRET:}
     accessTokenExpiration: 900 # 15m
     refreshTokenExpiration: 604800 # 7d
   profiles:
