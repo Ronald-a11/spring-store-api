@@ -1,5 +1,5 @@
 /*
- * Mosh's Grocery - a small storefront for the Store API.
+ * Tyrone Grocery Shop - a small storefront for the Tyrone Grocery Shop API.
  *
  * Vanilla ES2020, no framework, no build step. The page talks to the API on the same
  * origin (GET /products, /carts, /users, /auth/login, /checkout, /orders, admin writes).

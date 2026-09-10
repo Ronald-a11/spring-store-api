@@ -13,17 +13,23 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @OpenAPIDefinition(
     info = @Info(
-        title = "Store API",
+        title = "Tyrone Grocery Shop API",
         version = "1.0.0",
         description = """
-            REST API of a small e-commerce store: a product catalogue, anonymous shopping carts, \
-            Stripe checkout and the customer's order history. Responses are JSON; errors are \
+            REST API behind **Tyrone Grocery Shop** ([open the shop](/)): a product catalogue, anonymous \
+            shopping carts, Stripe checkout and the customer's order history. Responses are JSON; errors are \
             `{"error": "..."}` except validation failures, which map each invalid field to a message.
 
-            **Authentication.** Register with `POST /users`, log in with `POST /auth/login` to get a JWT \
-            access token (valid 15 minutes; a refresh token is also set as an HttpOnly cookie for \
-            `POST /auth/refresh`), then click **Authorize** and paste the token. Endpoints without a \
-            lock icon are public.
+            **Quick start (2 minutes).**
+            1. `POST /users` — register with a name, a lowercase e-mail and a 6–25 character password.
+            2. `POST /auth/login` — send the same e-mail and password; copy the `token` from the response.
+            3. Click **Authorize** (top right), paste the token, **Authorize**, **Close** — it is remembered \
+            across page reloads.
+            4. Try `GET /auth/me`, then `POST /carts` → `POST /carts/{cartId}/items` → `POST /checkout`.
+
+            **Authentication.** The access token is a JWT valid for 15 minutes (a refresh token is also set \
+            as an HttpOnly cookie for `POST /auth/refresh`); log in again when calls start returning 401. \
+            Endpoints without a lock icon are public.
 
             **Roles.** New accounts have the role `USER`. `ADMIN` (managing products, listing users, \
             `/admin`) is granted directly in the database — \

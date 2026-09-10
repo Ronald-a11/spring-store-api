@@ -299,7 +299,7 @@ Log in again afterwards — the role is baked into the access token.
 
 ## Using the storefront
 
-The home page (<http://localhost:8080/>) is a small storefront built from
+The home page (<http://localhost:8080/>) is **Tyrone Grocery Shop**, a small storefront built from
 `templates/index.html`, `static/app.css` and `static/app.js` — vanilla HTML, CSS and ES2020,
 no framework, no build step. It only calls the JSON API on the same origin, so everything it
 does can also be done from Swagger UI or curl:

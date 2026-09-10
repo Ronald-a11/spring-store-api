@@ -151,7 +151,7 @@ expect_status "HEAD / anonymous is 200 (health-check path; GET and HEAD permitte
 
 req GET "/app.js"
 expect_status "GET /app.js anonymous is 200 (storefront asset, permitAll GET only)" 200
-expect_body_contains "GET /app.js is the storefront script" "Mosh's Grocery"
+expect_body_contains "GET /app.js is the storefront script" "Tyrone Grocery Shop"
 req GET "/app.css"
 expect_status "GET /app.css anonymous is 200 (storefront asset, permitAll GET only)" 200
 req GET "/favicon.ico"
@@ -175,7 +175,7 @@ expect_eq "S5: bearerAuth is an http/bearer scheme" \
   "$(pyq "$BODY" "d['components']['securitySchemes']['bearerAuth']['type'] + '/' + d['components']['securitySchemes']['bearerAuth']['scheme']")" "http/bearer"
 expect_eq "S5: bearerAuth is applied globally" \
   "$(pyq "$BODY" "any('bearerAuth' in s for s in d['security'])")" "True"
-expect_eq "S5: info.title is 'Store API'" "$(pyq "$BODY" "d['info']['title']")" "Store API"
+expect_eq "S5: info.title is 'Tyrone Grocery Shop API'" "$(pyq "$BODY" "d['info']['title']")" "Tyrone Grocery Shop API"
 
 ############################################################
 section "Products - public reads (ProductSecurityRules: GET/HEAD permitAll)"
@@ -366,8 +366,7 @@ expect_body_contains "S1: 415 error body" "Unsupported media type."
 # The Thymeleaf home page renders the same storefront with a token as without.
 req GET "/" "" "$TOKEN_A"
 expect_status "GET / authenticated renders the Thymeleaf page" 200
-# th:text HTML-escapes the apostrophe, so the rendered h1 reads Mosh&#39;s Grocery.
-expect_body_contains "GET / renders the store name from the model (h1)" "<h1>Mosh&#39;s Grocery</h1>"
+expect_body_contains "GET / renders the store name (h1)" "<h1>Tyrone Grocery Shop</h1>"
 
 ############################################################
 section "Admin - promotion & role-gated endpoints"
