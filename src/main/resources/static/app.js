@@ -31,7 +31,10 @@ const CATEGORY_NAMES = {
 const STORAGE_TOKEN = 'store.token';
 const STORAGE_CART = 'store.cartId';
 const SESSION_EXPIRED = 'Session expired, please log in again.';
-const STRIPE_UNCONFIGURED = 'Payments are not configured on this demo (no Stripe key) — the order was not created.';
+// POST /checkout answers 500 {"error": "Error creating a checkout session"} for any Stripe failure (on this demo: no
+// key) and deletes the order first; the message below is shown for that body only, never for any other 500.
+const PAYMENT_UNAVAILABLE = 'The payment provider could not create a checkout session (Stripe is not configured on this demo) — the order was not created.';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const WAKE_UP_AFTER_MS = 2000; // show "Waking up the server" if the first request takes longer than this
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -247,6 +250,7 @@ function openAuthDialog(which) {
   $('login-error').textContent = '';
   $('register-error').textContent = '';
   const dialog = $('auth-dialog');
+  dialog.setAttribute('aria-labelledby', `${which}-heading`); // the visible form's <h2> names the dialog
   if (!dialog.open) dialog.showModal();
   const first = $(`${which}-form`).querySelector('input');
   if (first) first.focus();
@@ -372,7 +376,7 @@ function renderProducts() {
       el('p', { class: 'desc' }, product.description),
       el('div', { class: 'card-footer' }, el('span', { class: 'price' }, fmtMoney(product.price)), addButton));
     if (isAdmin) {
-      const deleteButton = el('button', { type: 'button', class: 'danger small' }, 'Delete');
+      const deleteButton = el('button', { type: 'button', class: 'danger small', 'aria-label': `Delete ${product.name}` }, 'Delete');
       deleteButton.addEventListener('click', () => busy(deleteButton, () => deleteProduct(product).catch(showError)));
       card.append(el('div', { class: 'admin-actions' }, deleteButton));
     }
@@ -421,33 +425,53 @@ function forgetCart() {
   storage.remove(STORAGE_CART);
 }
 
+/**
+ * True when the server says the stored cart id is unusable: an unknown cart (404) or a value that is
+ * not a UUID at all (400 "Invalid request parameter."), which would otherwise fail on every call forever.
+ */
+function isStaleCartError(err) {
+  return err instanceof ApiError
+    && (err.status === 404 || (err.status === 400 && Boolean(err.data) && err.data.error === 'Invalid request parameter.'));
+}
+
+let cartCreation = null; // the in-flight POST /carts, shared so two quick first adds do not create two carts
+let cartLoadSeq = 0;     // loadCart() drops an answer that arrives after a newer load was started
+
 /** Returns the cart id, creating the cart on the server the first time it is needed. */
 async function ensureCart() {
   if (state.cartId) return state.cartId;
-  const cart = await api('POST', '/carts');
-  state.cartId = cart.id;
-  state.cart = cart;
-  storage.set(STORAGE_CART, cart.id);
-  return cart.id;
+  if (!cartCreation) {
+    cartCreation = api('POST', '/carts').then((cart) => {
+      state.cartId = cart.id;
+      state.cart = cart;
+      storage.set(STORAGE_CART, cart.id);
+      return cart.id;
+    }).finally(() => { cartCreation = null; });
+  }
+  return cartCreation;
 }
 
-/** Calls /carts/{id}{subPath}; a 404 means the stored id is stale (unknown cart), so it is dropped. */
+/** Calls /carts/{id}{subPath}; a 404 (or a 400 for a non-UUID id) means the stored id is stale, so it is dropped. */
 async function cartCall(method, subPath, body) {
   const id = await ensureCart();
   try {
     return await api(method, `/carts/${id}${subPath}`, body);
   } catch (err) {
-    if (err instanceof ApiError && err.status === 404) forgetCart();
+    if (isStaleCartError(err)) forgetCart();
     throw err;
   }
 }
 
 async function loadCart() {
   if (!state.cartId) { state.cart = null; renderCart(); return; }
+  const seq = ++cartLoadSeq;
   try {
-    state.cart = await api('GET', `/carts/${state.cartId}`);
+    const cart = await api('GET', `/carts/${state.cartId}`);
+    if (seq !== cartLoadSeq) return; // a newer load answered first: keep it, do not render this older cart
+    state.cart = cart;
   } catch (err) {
-    if (err instanceof ApiError && err.status === 404) forgetCart(); // stale id: a new cart is created on the next add
+    if (seq !== cartLoadSeq) return;
+    if (isStaleCartError(err)) forgetCart(); // stale id: a new cart is created on the next add
     else showError(err);
   }
   renderCart();
@@ -489,7 +513,7 @@ function renderCart() {
     const product = item.product || {};
     const minus = el('button', { type: 'button', class: 'secondary qty', 'aria-label': `Remove one ${product.name}` }, '−');
     const plus = el('button', { type: 'button', class: 'secondary qty', 'aria-label': `Add one ${product.name}` }, '+');
-    const remove = el('button', { type: 'button', class: 'link small-text' }, 'Remove');
+    const remove = el('button', { type: 'button', class: 'link small-text', 'aria-label': `Remove ${product.name}` }, 'Remove');
     minus.addEventListener('click', () => busy(minus, () => setQuantity(product.id, item.quantity - 1).catch(showError)));
     plus.addEventListener('click', () => busy(plus, () => setQuantity(product.id, item.quantity + 1).catch(showError)));
     remove.addEventListener('click', () => busy(remove, () => removeItem(product.id).catch(showError)));
@@ -520,12 +544,14 @@ async function checkout() {
   try {
     const result = await api('POST', '/checkout', { cartId: state.cartId }, true);
     toast(`Order #${result.orderId} created — opening Stripe Checkout.`, 'success');
+    // Open Stripe straight away, while the click's user activation is still fresh: awaiting the refreshes
+    // first could push window.open() past the activation window and get it blocked as a pop-up.
+    const opened = window.open(result.checkoutUrl, '_blank', 'noopener');
+    if (!opened) { window.location.assign(result.checkoutUrl); return; } // pop-up blocked: go there directly
     await loadCart();   // the server empties the cart on success
     await loadOrders();
-    const opened = window.open(result.checkoutUrl, '_blank', 'noopener');
-    if (!opened) window.location.assign(result.checkoutUrl); // pop-up blocked: go there directly
   } catch (err) {
-    if (err instanceof ApiError && err.status === 500) toast(STRIPE_UNCONFIGURED, 'error');
+    if (err instanceof ApiError && err.status === 500 && err.message === 'Error creating a checkout session') toast(PAYMENT_UNAVAILABLE, 'error');
     else if (err instanceof ApiError && err.status === 400 && /cart/i.test(err.message)) { toast(err.message, 'error'); await loadCart(); }
     else showError(err);
   }
@@ -598,7 +624,9 @@ function init() {
     renderProducts();
   });
 
-  state.cartId = storage.get(STORAGE_CART);
+  const storedCartId = storage.get(STORAGE_CART);
+  if (storedCartId && UUID_RE.test(storedCartId)) state.cartId = storedCartId;
+  else storage.remove(STORAGE_CART); // anything else would only ever get 400 from /carts/{id}
   setToken(storage.get(STORAGE_TOKEN)); // restores the session; an expired token is dropped
   renderOrders();
 

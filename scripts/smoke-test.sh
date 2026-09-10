@@ -144,11 +144,19 @@ case "$BODY" in
   *) ok "GET / has no Thymeleaf inlining sequences" ;;
 esac
 
+# Fix beyond the course: HEAD "/" is permitted too - it is the health-check path
+# (railway.json) and probes or proxies that send HEAD got 401.
+head_req "/"
+expect_status "HEAD / anonymous is 200 (health-check path; GET and HEAD permitted)" 200
+
 req GET "/app.js"
 expect_status "GET /app.js anonymous is 200 (storefront asset, permitAll GET only)" 200
 expect_body_contains "GET /app.js is the storefront script" "Mosh's Grocery"
 req GET "/app.css"
 expect_status "GET /app.css anonymous is 200 (storefront asset, permitAll GET only)" 200
+req GET "/favicon.ico"
+expect_status "GET /favicon.ico anonymous is 200 (storefront asset, permitAll GET only)" 200
+expect_header_contains "GET /favicon.ico is served as an image" "content-type: image/"
 req POST "/app.js"
 expect_status "POST /app.js anonymous is 401 (only GET is permitted)" 401
 

@@ -31,6 +31,8 @@ h3 { font-size: 1rem; }
 a { color: var(--accent-dark); }
 .muted { color: var(--muted); }
 .small-text { font-size: 0.85rem; }
+/* A long word without spaces (a product name typed that way) wraps instead of forcing the page to scroll sideways. */
+.card h3, .card .desc, .cart-item, .order, .toast, .user-chip { overflow-wrap: anywhere; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* Buttons */
@@ -126,6 +128,7 @@ label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; 
 .cart-item .controls { display: flex; align-items: center; gap: 0.35rem; grid-column: 1 / -1; }
 .cart-item .qty-value { min-width: 1.5rem; text-align: center; }
 .cart-item .unit { font-size: 0.85rem; color: var(--muted); }
+.cart-item .controls button.link { min-height: 24px; padding: 0.15rem 0.3rem; } /* WCAG 2.2 target size (24x24 minimum) */
 .cart-footer { margin-top: 0.75rem; }
 .cart-total { display: flex; justify-content: space-between; font-size: 1.05rem; margin: 0 0 0.75rem; }
 .cart-actions { display: flex; gap: 0.5rem; }
@@ -155,7 +158,8 @@ label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; 
 .toast-error { background: var(--danger); }
 
 @media (max-width: 900px) {
-  .layout { grid-template-columns: 1fr; grid-template-areas: "catalogue" "cart" "orders" "admin"; }
+  /* minmax(0, 1fr), not 1fr: a bare 1fr is minmax(auto, 1fr) and cannot shrink below its longest word. */
+  .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "catalogue" "cart" "orders" "admin"; }
   .cart-panel { position: static; }
   .toolbar input[type="search"] { width: 100%; }
   .form-grid { grid-template-columns: 1fr; }

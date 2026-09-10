@@ -309,16 +309,18 @@ does can also be done from Swagger UI or curl:
    filter by `categoryId`.
 2. **Cart.** The first *Add to cart* creates an anonymous cart (`POST /carts`) and keeps its
    UUID in `localStorage`; the +/−, *Remove* and *Clear* controls map to the
-   `/carts/{cartId}/items` endpoints. A stale UUID (unknown cart, `404`) is dropped and a new
-   cart is created on the next add.
+   `/carts/{cartId}/items` endpoints. A stale UUID (unknown cart, `404`) or a stored value
+   that is not a UUID at all (`400`) is dropped and a new cart is created on the next add.
 3. **Register / log in.** The dialog posts to `POST /users` and `POST /auth/login`; the access
    token is kept in `localStorage` and its payload is decoded only to show your name and role.
    Tokens last 15 minutes: any `401` on an authenticated call ends the session with
    *Session expired, please log in again*.
 4. **Checkout.** *Checkout* is enabled once you are logged in and the cart is not empty; it
    posts `{cartId}` to `POST /checkout` and opens the returned Stripe URL. Without a
-   `STRIPE_SECRET_KEY` the API answers `500`, which the page shows as *Payments are not
-   configured on this demo (no Stripe key) — the order was not created.*
+   `STRIPE_SECRET_KEY` the API answers `500 {"error": "Error creating a checkout session"}`
+   (and deletes the order), which the page shows as *The payment provider could not create a
+   checkout session (Stripe is not configured on this demo) — the order was not created.*
+   Any other `500` is shown with the server's own message.
 5. **My orders.** Visible when logged in; lists `GET /orders` with status, date, total and items.
 6. **Admin.** When the token's role is `ADMIN` the page shows an *add product* form
    (`POST /products`) and a *Delete* button on every product card (`DELETE /products/{id}`;
@@ -359,7 +361,8 @@ with a one-line comment starting with `// Fix beyond the course:` (or
 | Payments | Webhook: missing `Stripe-Signature` header returns `400`; malformed `order_id` metadata and unknown orders are handled without crashing; only `PENDING` orders transition | A request without the header threw and became a blank `401`; a bad metadata value crashed the handler; an order already `PAID` or `FAILED` took whatever status a late or replayed event carried |
 | Payments | `WARN` logged at startup when `STRIPE_SECRET_KEY` is blank | The app started silently with Stripe unconfigured and only failed at the first checkout |
 | Users | `@Builder.Default` on `User.favoriteProducts` | Lombok's builder ignored the field initialiser, so `User.builder().build()` had a `null` set and `addFavoriteProduct` threw `NullPointerException` |
-| Common | `GET /` is public and the home page links to Swagger UI and `/products` | No security rule permitted `/`, so opening the root URL in a browser returned a blank `401` and looked like the app was down |
+| Common | `GET /` and `HEAD /` are public and the home page links to Swagger UI and `/products` | No security rule permitted `/`, so opening the root URL in a browser returned a blank `401` and looked like the app was down; `HEAD /` (the health-check path on Railway) still answered `401` to probes that send `HEAD` |
+| Common | `server.forward-headers-strategy: framework` in `application-prod.yaml`, so absolute URLs honour the proxy's `X-Forwarded-Proto`/`Host` | Behind Railway's TLS-terminating edge the app saw plain `http` requests: the OpenAPI document advertised an `http://` server, so **Try it out** in the `https` Swagger UI was blocked as mixed content, and the `201` `Location` headers of `POST /users`, `/carts` and `/products` pointed at `http://` |
 | Auth | The app refuses to start when `JWT_SECRET` is blank or shorter than 32 bytes (256 bits); the value is never logged | A blank secret booted a "healthy" app in which every `POST /auth/login` returned `401` (`WeakKeyException` at the first login), so a deployment health check could not tell |
 | Docs | Swagger UI documents every endpoint: tags, summaries, status codes, examples; Authorize persists across reloads; public endpoints show no lock | The course strips its OpenAPI annotations at the end, so the generated docs listed bare paths with no explanation, and with the global `bearerAuth` requirement every operation showed a lock — public ones included |
 | Web UI | The home page is a small storefront (vanilla HTML/JS) that uses the public and authenticated endpoints; Swagger UI stays at `/swagger-ui/index.html`. `GET /app.js`, `/app.css` and `/favicon.ico` are permitted (GET only) so the assets load anonymously | The root URL only said "the API is running"; the storefront exercises the whole flow — browse, cart, register, log in, check out, order history, admin product management — from a browser without Swagger or curl (see [Using the storefront](#using-the-storefront)) |
@@ -384,14 +387,23 @@ The repo ships a multi-stage `Dockerfile` (JDK 25 + Maven wrapper build stage, J
 runtime, non-root user, both base images pinned by digest so a rebuild cannot silently
 change the JDK, and the build stage pins the SHA-256 of the Maven distribution the
 wrapper downloads, so a tampered download fails the build) and a `railway.json` that
-makes Railway build from it, health-check `GET /` and restart on failure. Create a
-Railway project from this GitHub repo (Railway builds `main`, so the `Dockerfile`,
+asks Railway to build from the `Dockerfile`, health-check `GET /` (300 s) and restart on
+failure with 5 retries — on the current CLI-uploaded deployments Railway has not applied
+the file (no healthcheck step runs and the restart limit is Railway's default 10), so set
+the health check under service **Settings → Deploy** as well.
+
+Create a Railway project from this GitHub repo (Railway builds `main`, so the `Dockerfile`,
 `railway.json` and `.railwayignore` must be committed there) — or deploy from the CLI:
 run `railway init` or `railway link` **in this directory first** and pass
 `--service store-api` to every `railway up`, `railway variable set` and `railway domain`,
 because the CLI otherwise falls back to the nearest linked parent folder, which may belong
-to another project; `.railwayignore` keeps `.env`, `target/` and `.git/` out of the upload —
-add a **MySQL** service next to it, and set these variables on the API service:
+to another project; `.railwayignore` keeps `.env`, `target/` and `.git/` out of the upload.
+The live service is **not** connected to GitHub: every deployment is an upload from this
+directory with `railway up --service store-api` (Railway records the CLI caller, no repo or
+commit), so pushing to `main` does not redeploy — run `railway up` after each change. To
+have Railway build `main` instead, connect the service to the repo under service
+**Settings → Source**. Either way, add a **MySQL** service next to it, and set these
+variables on the API service:
 
 | Variable | Value |
 | --- | --- |
@@ -403,11 +415,18 @@ add a **MySQL** service next to it, and set these variables on the API service:
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET_KEY` | optional; leave unset until Stripe is wired up (checkout returns the payment error, startup logs a `WARN`) |
 | `JAVA_OPTS` | optional; the image defaults to `-XX:MaxRAMPercentage=50 -XX:+ExitOnOutOfMemoryError` — the heap is capped at 50% of the service's memory limit (512 MiB at 1 GB; the live heap is ~40 MiB) and an `OutOfMemoryError` exits the JVM so the `ON_FAILURE` restart policy replaces it. 50% rather than 75% because the JVM's non-heap footprint is ~290 MiB: a 768 MiB heap could grow past a 1 GiB limit and be OOM-killed by the kernel (exit 137) before an `OutOfMemoryError` is thrown |
 
-Do not set `PORT`: Railway injects it and the container's entrypoint passes it to Spring as
-`--server.port=${PORT:-8080}` (Spring Boot does not read `PORT` by itself). Flyway applies
-`V1`–`V6` to the Railway database on the first start, and the health check is `GET /`, which
-is public and serves the home page. `websiteUrl` in `application-prod.yaml` is still the
-course's `https://mystore.com` placeholder for the Stripe redirect.
+`PORT` is set to `8080` on the live service, the same value the entrypoint falls back to
+(`--server.port=${PORT:-8080}`; Spring Boot does not read `PORT` by itself) and the port the
+public domain targets; Railway injects `PORT` on its own, so the variable is optional — if
+you keep it, it must match the domain's target port (service **Settings → Networking**).
+Flyway applies `V1`–`V6` to the Railway database on the first start, and the health check is
+`GET /`, which is public (as is `HEAD /`) and serves the home page. `websiteUrl` in
+`application-prod.yaml` is still the course's `https://mystore.com` placeholder for the
+Stripe redirect. Railway terminates TLS at its edge and forwards plain HTTP, so
+`application-prod.yaml` sets `server.forward-headers-strategy: framework`: the app honours
+`X-Forwarded-Proto`/`Host` and the OpenAPI `servers` entry and every `Location` header use
+`https://` (without it Swagger UI's **Try it out** targets `http://` and the browser blocks
+the mixed-content requests).
 
 Set an explicit **memory limit** on the API service (service **Settings → Resource
 limits**; 1 GB is plenty): the JVM sizes its heap from the container's cgroup limit, and
@@ -423,7 +442,8 @@ in prod on purpose — this is a portfolio API. To hide them, add
 `application-prod.yaml`.
 
 A clean prod start logs no `ERROR` lines and exactly these `WARN` lines, all harmless:
-Flyway "MySQL 8.4 is newer than this version of Flyway", `StripeConfig` "STRIPE_SECRET_KEY
+Flyway "MySQL 9.4 is newer than this version of Flyway" (the Railway MySQL service runs the
+`mysql:9.4` image), `StripeConfig` "STRIPE_SECRET_KEY
 is not set" (until Stripe is configured), "Global AuthenticationManager configured with an
 AuthenticationProvider bean", "spring.jpa.open-in-view is enabled by default", and the two
 SpringDoc notices that `/v3/api-docs` and `/swagger-ui.html` are enabled in production.
