@@ -395,4 +395,5 @@ is not set" (until Stripe is configured), "Global AuthenticationManager configur
 AuthenticationProvider bean", "spring.jpa.open-in-view is enabled by default", and the two
 SpringDoc notices that `/v3/api-docs` and `/swagger-ui.html` are enabled in production.
 
-Live: <url>
+Live: https://store-api-production-de54.up.railway.app — Swagger UI at
+https://store-api-production-de54.up.railway.app/swagger-ui/index.html
