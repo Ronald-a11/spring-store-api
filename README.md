@@ -297,6 +297,38 @@ UPDATE users SET role = 'ADMIN' WHERE email = 'you@example.com';
 
 Log in again afterwards — the role is baked into the access token.
 
+## Using the storefront
+
+The home page (<http://localhost:8080/>) is a small storefront built from
+`templates/index.html`, `static/app.css` and `static/app.js` — vanilla HTML, CSS and ES2020,
+no framework, no build step. It only calls the JSON API on the same origin, so everything it
+does can also be done from Swagger UI or curl:
+
+1. **Browse.** `GET /products` fills the grid; the search box filters by name and the
+   category buttons (one per category present in the catalogue, named after the `V5` seed)
+   filter by `categoryId`.
+2. **Cart.** The first *Add to cart* creates an anonymous cart (`POST /carts`) and keeps its
+   UUID in `localStorage`; the +/−, *Remove* and *Clear* controls map to the
+   `/carts/{cartId}/items` endpoints. A stale UUID (unknown cart, `404`) is dropped and a new
+   cart is created on the next add.
+3. **Register / log in.** The dialog posts to `POST /users` and `POST /auth/login`; the access
+   token is kept in `localStorage` and its payload is decoded only to show your name and role.
+   Tokens last 15 minutes: any `401` on an authenticated call ends the session with
+   *Session expired, please log in again*.
+4. **Checkout.** *Checkout* is enabled once you are logged in and the cart is not empty; it
+   posts `{cartId}` to `POST /checkout` and opens the returned Stripe URL. Without a
+   `STRIPE_SECRET_KEY` the API answers `500`, which the page shows as *Payments are not
+   configured on this demo (no Stripe key) — the order was not created.*
+5. **My orders.** Visible when logged in; lists `GET /orders` with status, date, total and items.
+6. **Admin.** When the token's role is `ADMIN` the page shows an *add product* form
+   (`POST /products`) and a *Delete* button on every product card (`DELETE /products/{id}`;
+   a product that belongs to an order answers `409`). To become an admin, promote your
+   account with the SQL `UPDATE` in [Making an admin](#making-an-admin) and log in again.
+
+If the first request takes more than two seconds (a sleeping demo host), the page shows
+*Waking up the server…* until `GET /products` answers. The footer still links to Swagger UI
+and the raw `/products` JSON.
+
 ---
 
 ## Fixes beyond the course
@@ -330,6 +362,7 @@ with a one-line comment starting with `// Fix beyond the course:` (or
 | Common | `GET /` is public and the home page links to Swagger UI and `/products` | No security rule permitted `/`, so opening the root URL in a browser returned a blank `401` and looked like the app was down |
 | Auth | The app refuses to start when `JWT_SECRET` is blank or shorter than 32 bytes (256 bits); the value is never logged | A blank secret booted a "healthy" app in which every `POST /auth/login` returned `401` (`WeakKeyException` at the first login), so a deployment health check could not tell |
 | Docs | Swagger UI documents every endpoint: tags, summaries, status codes, examples; Authorize persists across reloads; public endpoints show no lock | The course strips its OpenAPI annotations at the end, so the generated docs listed bare paths with no explanation, and with the global `bearerAuth` requirement every operation showed a lock — public ones included |
+| Web UI | The home page is a small storefront (vanilla HTML/JS) that uses the public and authenticated endpoints; Swagger UI stays at `/swagger-ui/index.html`. `GET /app.js`, `/app.css` and `/favicon.ico` are permitted (GET only) so the assets load anonymously | The root URL only said "the API is running"; the storefront exercises the whole flow — browse, cart, register, log in, check out, order history, admin product management — from a browser without Swagger or curl (see [Using the storefront](#using-the-storefront)) |
 
 ### Still as in the course (known limitations)
 

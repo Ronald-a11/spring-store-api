@@ -3,11 +3,111 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Document</title>
+    <!-- Fix beyond the course: the home page is a small storefront (static/app.css + static/app.js) that drives the API from a browser;
+         the template is static HTML only - the page is filled in by /app.js from the JSON endpoints. -->
+    <title>Mosh's Grocery</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='8' fill='%232e7d32'/><text x='3' y='12' font-size='11' font-family='sans-serif' font-weight='bold' fill='white'>M</text></svg>">
+    <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-    <h1 th:text="'Hello ' + ${name}"></h1>
-    <!-- Fix beyond the course: link to the API docs so the root URL is a useful landing page. -->
-    <p>Store API is running. Explore the <a href="/swagger-ui/index.html">API documentation (Swagger UI)</a> or fetch <a href="/products">/products</a>.</p>
+<header class="site-header">
+    <div class="brand">
+        <h1 th:text="|${name}'s Grocery|">Mosh's Grocery</h1>
+        <p class="tagline">A demo storefront for the Store API</p>
+    </div>
+    <div class="toolbar">
+        <input id="search" type="search" placeholder="Search products" aria-label="Search products by name" autocomplete="off">
+        <div id="auth-area" class="auth-area">
+            <button id="login-btn" type="button">Log in</button>
+            <button id="register-btn" type="button" class="secondary">Register</button>
+            <span id="user-chip" class="user-chip" hidden>
+                Hi <strong id="user-name"></strong>
+                <span id="user-role" class="badge"></span>
+                <button id="logout-btn" type="button" class="secondary small">Log out</button>
+            </span>
+        </div>
+    </div>
+</header>
+
+<nav id="categories" class="categories" aria-label="Filter by category"></nav>
+
+<main class="layout">
+    <section class="catalogue" aria-labelledby="catalogue-heading">
+        <h2 id="catalogue-heading" class="visually-hidden">Products</h2>
+        <p id="products-status" class="status" role="status" hidden></p>
+        <div id="product-grid" class="product-grid"></div>
+    </section>
+
+    <aside class="cart-panel" aria-labelledby="cart-heading">
+        <h2 id="cart-heading">Your cart</h2>
+        <ul id="cart-items" class="cart-items"></ul>
+        <p id="cart-empty" class="muted">Your cart is empty.</p>
+        <div class="cart-footer">
+            <p class="cart-total">Total <strong id="cart-total">$0.00</strong></p>
+            <div class="cart-actions">
+                <button id="clear-cart-btn" type="button" class="secondary" disabled>Clear</button>
+                <button id="checkout-btn" type="button" disabled>Checkout</button>
+            </div>
+            <p id="checkout-hint" class="hint"></p>
+        </div>
+    </aside>
+
+    <section id="orders-section" class="orders" aria-labelledby="orders-heading" hidden>
+        <div class="section-head">
+            <h2 id="orders-heading">My orders</h2>
+            <button id="refresh-orders-btn" type="button" class="secondary small">Refresh</button>
+        </div>
+        <div id="orders-list"></div>
+    </section>
+
+    <section id="admin-section" class="admin" aria-labelledby="admin-heading" hidden>
+        <h2 id="admin-heading">Admin: add a product</h2>
+        <form id="add-product-form" class="form-grid" novalidate>
+            <label>Name <input name="name" required maxlength="255"></label>
+            <label>Price <input name="price" type="number" min="0.01" step="0.01" required></label>
+            <label class="wide">Description <input name="description" required></label>
+            <label>Category <select id="admin-category" name="categoryId" required></select></label>
+            <div class="form-actions">
+                <button type="submit">Add product</button>
+            </div>
+        </form>
+    </section>
+</main>
+
+<footer class="site-footer">
+    <a href="/swagger-ui/index.html">API docs (Swagger UI)</a>
+    <span aria-hidden="true">&middot;</span>
+    <a href="/products">/products JSON</a>
+</footer>
+
+<dialog id="auth-dialog" class="auth-dialog">
+    <form id="login-form" class="auth-form" novalidate>
+        <h2>Log in</h2>
+        <label>E-mail <input name="email" type="email" autocomplete="email" required></label>
+        <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+        <p id="login-error" class="form-error" role="alert"></p>
+        <div class="form-actions">
+            <button type="button" class="secondary" data-close>Cancel</button>
+            <button type="submit">Log in</button>
+        </div>
+        <p class="muted small-text">New here? <button type="button" class="link" data-switch="register">Create an account</button></p>
+    </form>
+    <form id="register-form" class="auth-form" novalidate hidden>
+        <h2>Register</h2>
+        <label>Name <input name="name" autocomplete="name" required maxlength="255"></label>
+        <label>E-mail <input name="email" type="email" autocomplete="email" required></label>
+        <label>Password (6 to 25 characters) <input name="password" type="password" autocomplete="new-password" required minlength="6" maxlength="25"></label>
+        <p id="register-error" class="form-error" role="alert"></p>
+        <div class="form-actions">
+            <button type="button" class="secondary" data-close>Cancel</button>
+            <button type="submit">Register</button>
+        </div>
+        <p class="muted small-text">Already registered? <button type="button" class="link" data-switch="login">Log in</button></p>
+    </form>
+</dialog>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+
+<script src="/app.js"></script>
 </body>
 </html>
