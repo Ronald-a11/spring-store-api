@@ -55,7 +55,7 @@ public class CheckoutController {
 
     @Operation(summary = "Stripe webhook (public, called by Stripe)",
                description = "Receives Stripe events signed with `STRIPE_WEBHOOK_SECRET_KEY`. `payment_intent.succeeded` marks the order named in the payment intent's `order_id` metadata PAID and `payment_intent.payment_failed` marks it FAILED; other event types, unknown orders and orders that are no longer PENDING are ignored. Not meant to be called by hand: the `Stripe-Signature` header must match the raw payload, so use the Stripe CLI (`stripe listen --forward-to .../checkout/webhook`) to exercise it.",
-               parameters = @Parameter(name = "Stripe-Signature", in = ParameterIn.HEADER, required = true,
+               parameters = @Parameter(name = "Stripe-Signature", in = ParameterIn.HEADER, required = true, schema = @Schema(type = "string"),
                                        description = "Stripe's signature of the payload, computed with the endpoint's signing secret."))
     @SecurityRequirements
     @ApiResponses({

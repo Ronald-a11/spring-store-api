@@ -41,7 +41,7 @@ public class ProductController {
     })
     @GetMapping
     public List<ProductDto> getAllProducts(
-        @Parameter(description = "Category ID to filter by; the seed data has 1 Produce, 2 Dairy, 3 Bakery, 4 Meat & Seafood, 5 Pantry Staples, 6 Beverages.", example = "1")
+        @Parameter(description = "Category ID to filter by; the seed data has 1 Produce, 2 Dairy, 3 Bakery, 4 Meat & Seafood, 5 Pantry Staples, 6 Beverages.", example = "1", schema = @Schema(type = "integer", format = "int32"))
         @RequestParam(name = "categoryId", required = false) Byte categoryId
     ) {
         List<Product> products;

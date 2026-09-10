@@ -33,7 +33,8 @@ public class ProductDto {
     @NotBlank(message = "Description is required.")
     private String description;
 
-    @Schema(description = "ID of an existing category; the seed data has 1 Produce, 2 Dairy, 3 Bakery, 4 Meat & Seafood, 5 Pantry Staples, 6 Beverages.", example = "1")
+    // implementation = Integer.class: springdoc would otherwise document the Byte as string($byte); a plain type = "integer" is ignored for properties in OpenAPI 3.1 mode.
+    @Schema(implementation = Integer.class, description = "ID of an existing category; the seed data has 1 Produce, 2 Dairy, 3 Bakery, 4 Meat & Seafood, 5 Pantry Staples, 6 Beverages.", example = "1")
     @NotNull(message = "Category ID is required.")
     private Byte categoryId;
 }

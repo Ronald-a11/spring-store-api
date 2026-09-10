@@ -60,7 +60,7 @@ public class AuthController {
     }
 
     @Operation(summary = "Refresh the access token (public, cookie-based)",
-               description = "Issues a new access token from the `refreshToken` cookie set by `POST /auth/login`. Browsers send the cookie automatically; other clients send `Cookie: refreshToken=...`. Swagger UI cannot attach a cookie scoped to another path, so try this one from a browser or curl.")
+               description = "Issues a new access token from the `refreshToken` cookie set by `POST /auth/login`. Browsers send the cookie automatically, so after logging in through **Try it out** this call works from Swagger UI too (over https, or on localhost): type anything into the required cookie field, browsers ignore that value and send the stored cookie instead. Other clients send `Cookie: refreshToken=...`.")
     @SecurityRequirements
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "A new access token."),
@@ -68,7 +68,7 @@ public class AuthController {
     })
     @PostMapping("/refresh")
     public JwtResponse refresh(
-        @Parameter(description = "Refresh token cookie set by POST /auth/login; sent automatically by browsers.")
+        @Parameter(description = "Refresh token cookie set by POST /auth/login; browsers send it automatically and ignore any value typed here.")
         @CookieValue(value = "refreshToken") String refreshToken) {
         var accessToken = authService.refreshAccessToken(refreshToken);
         return new JwtResponse(accessToken.toString());
