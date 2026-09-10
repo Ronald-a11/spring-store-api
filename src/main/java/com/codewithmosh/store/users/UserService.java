@@ -1,0 +1,104 @@
+package com.codewithmosh.store.users;
+
+import com.codewithmosh.store.auth.AuthService;
+import lombok.AllArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Sort;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+import java.util.Set;
+
+@AllArgsConstructor
+@Service
+public class UserService {
+    private final UserRepository userRepository;
+    private final UserMapper userMapper;
+    private final PasswordEncoder passwordEncoder;
+    // Fix beyond the course: needed to check that the caller owns the account (or is an admin).
+    private final AuthService authService;
+
+    public Iterable<UserDto> getAllUsers(String sortBy) {
+        if (!Set.of("name", "email").contains(sortBy))
+            sortBy = "name";
+
+        return userRepository.findAll(Sort.by(sortBy))
+                .stream()
+                .map(userMapper::toDto)
+                .toList();
+    }
+
+    public UserDto getUser(Long userId) {
+        // Fix beyond the course: owner-or-admin check (see checkAccess).
+        checkAccess(userId);
+        var user = userRepository.findById(userId).orElseThrow(UserNotFoundException::new);
+        return userMapper.toDto(user);
+    }
+
+    public UserDto registerUser(RegisterUserRequest request) {
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new DuplicateUserException();
+        }
+
+        var user = userMapper.toEntity(request);
+        user.setPassword(passwordEncoder.encode(user.getPassword()));
+        user.setRole(Role.USER);
+        // Fix beyond the course: a concurrent registration can slip past the check above; the unique index (V6) catches it.
+        try {
+            userRepository.save(user);
+        } catch (DataIntegrityViolationException ex) {
+            throw new DuplicateUserException();
+        }
+
+        return userMapper.toDto(user);
+    }
+
+    public UserDto updateUser(Long userId, UpdateUserRequest request) {
+        // Fix beyond the course: owner-or-admin check (see checkAccess).
+        checkAccess(userId);
+        var user = userRepository.findById(userId).orElseThrow(UserNotFoundException::new);
+        // Fix beyond the course: reject an e-mail that already belongs to another user.
+        if (!user.getEmail().equals(request.getEmail()) && userRepository.existsByEmail(request.getEmail())) {
+            throw new DuplicateUserException();
+        }
+        userMapper.update(request, user);
+        // Fix beyond the course: same race as in registerUser; the unique index (V6) catches it.
+        try {
+            userRepository.save(user);
+        } catch (DataIntegrityViolationException ex) {
+            throw new DuplicateUserException();
+        }
+
+        return userMapper.toDto(user);
+    }
+
+    public void deleteUser(Long userId) {
+        // Fix beyond the course: owner-or-admin check (see checkAccess).
+        checkAccess(userId);
+        var user = userRepository.findById(userId).orElseThrow(UserNotFoundException::new);
+        userRepository.delete(user);
+    }
+
+    public void changePassword(Long userId, ChangePasswordRequest request) {
+        // Fix beyond the course: owner-or-admin check (see checkAccess).
+        checkAccess(userId);
+        var user = userRepository.findById(userId).orElseThrow(UserNotFoundException::new);
+
+        if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
+            throw new AccessDeniedException("Password does not match");
+        }
+
+        // Fix beyond the course: hash the new password instead of storing it in plaintext.
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+    }
+
+    // Fix beyond the course: only the account owner or an admin may read/update/delete a user or change its password.
+    private void checkAccess(Long userId) {
+        var currentUser = authService.getCurrentUser();
+        if (currentUser == null || (currentUser.getRole() != Role.ADMIN && !currentUser.getId().equals(userId))) {
+            throw new UserAccessDeniedException();
+        }
+    }
+}

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "store-api",
+      "runtimeExecutable": "mvn",
+      "runtimeArgs": ["-f", "C:/Users/DELLG1~1/Desktop/New/spring-api-starter/pom.xml", "spring-boot:run"],
+      "port": 8080
+    }
+  ]
+}

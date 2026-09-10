@@ -1,0 +1,75 @@
+package com.codewithmosh.store.payments;
+
+import com.codewithmosh.store.orders.Order;
+import com.codewithmosh.store.carts.CartEmptyException;
+import com.codewithmosh.store.carts.CartNotFoundException;
+import com.codewithmosh.store.carts.CartRepository;
+import com.codewithmosh.store.orders.OrderRepository;
+import com.codewithmosh.store.orders.PaymentStatus;
+import com.codewithmosh.store.auth.AuthService;
+import com.codewithmosh.store.carts.CartService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+// Fix beyond the course: logger for the webhook warnings in handleWebhookEvent.
+@Slf4j
+@RequiredArgsConstructor
+@Service
+public class CheckoutService {
+    private final CartRepository cartRepository;
+    private final OrderRepository orderRepository;
+    private final AuthService authService;
+    private final CartService cartService;
+    private final PaymentGateway paymentGateway;
+
+    @Transactional
+    public CheckoutResponse checkout(CheckoutRequest request) {
+        var cart = cartRepository.getCartWithItems(request.getCartId()).orElse(null);
+        if (cart == null) {
+            throw new CartNotFoundException();
+        }
+
+        if (cart.isEmpty()) {
+            throw new CartEmptyException();
+        }
+
+        var order = Order.fromCart(cart, authService.getCurrentUser());
+
+        orderRepository.save(order);
+
+        try {
+            var session = paymentGateway.createCheckoutSession(order);
+
+            cartService.clearCart(cart.getId());
+
+            return new CheckoutResponse(order.getId(), session.getCheckoutUrl());
+        }
+        catch (PaymentException ex) {
+            orderRepository.delete(order);
+            throw ex;
+        }
+    }
+
+    public void handleWebhookEvent(WebhookRequest request) {
+        paymentGateway
+            .parseWebhookRequest(request)
+            .ifPresent(paymentResult -> {
+                // Fix beyond the course: ignore unknown or already-settled orders so Stripe gets a 200 and stops retrying.
+                var order = orderRepository.findById(paymentResult.getOrderId()).orElse(null);
+                if (order == null) {
+                    log.warn("Ignoring webhook event for unknown order {}", paymentResult.getOrderId());
+                    return;
+                }
+
+                if (order.getStatus() != PaymentStatus.PENDING) {
+                    log.warn("Ignoring webhook event for order {} with status {}", order.getId(), order.getStatus());
+                    return;
+                }
+
+                order.setStatus(paymentResult.getPaymentStatus());
+                orderRepository.save(order);
+            });
+    }
+}

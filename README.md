@@ -1,19 +1,341 @@
-# The Ultimate Spring Boot Course
+# Spring Boot: Mastering REST API Development
 
-This repository contains the starter project for Part 2 of my Spring Boot course:
+This repository contains the **completed code** for [Part 2 of my Spring Boot course](https://codewithmosh.com/p/spring-boot-building-apis).
 
-[https://codewithmosh.com/p/spring-boot-building-apis](https://codewithmosh.com/p/spring-boot-building-apis)
+In this project, we build the backend for an e-commerce application using Spring Boot. The API includes endpoints for:
 
-## About this Repository 
+- Managing products
+- Managing shopping carts
+- Checking out
+- Viewing order history
 
-This project is based on the final project from Part 1 of the course, but I’ve cleaned it up and removed unnecessary playground code so we can focus on building APIs in Part 2.
+---
 
-You’ll be cloning this repository and coding along with me as we extend the project.
+## 🚀 Getting Started
 
-To get started, clone the repository to your local machine:
+### 1. Clone the Repository
 
-```sh
-git clone https://github.com/mosh-hamedani/spring-api-starter
-
-cd spring-api
+```bash
+git clone https://github.com/mosh-hamedani/spring-api-finished.git
+cd spring-api-finished
 ```
+
+### 2. Configure Environment Variables
+- Rename the ``.env.example`` file to ``.env``. 
+- Update the following environment variables inside .env: 
+
+#### JWT_SECRET
+
+Generate a secure random key using:
+
+```bash
+openssl rand -base64 32
+```
+
+If ``openssl`` is not available, go to [generate-random.org](https://generate-random.org), click on **Strings > API Tokens**, and generate a secure token.
+
+#### STRIPE_SECRET_KEY
+
+- Create a free account at [stripe.com](https://stripe.com)
+- On your dashboard, go to **Developers > API Keys**. You can use the search bar for quick access.
+- Copy the value of the **Secret Key**.
+
+#### STRIPE_WEBHOOK_SECRET_KEY
+
+- Install the Stripe CLI: https://docs.stripe.com/stripe-cli
+- Login and start the webhook listener:
+
+```bash
+stripe login
+stripe listen --forward-to http://localhost:8080/checkout/webhook
+```
+- Copy the **signing secret** from the terminal output and use it as the value for ``STRIPE_WEBHOOK_SECRET_KEY``.
+
+---
+
+## ▶️ Running the Project
+
+This is a Maven project. To start the application, run:
+
+```bash
+./mvnw spring-boot:run
+```
+
+If you're on Windows:
+
+```bash
+mvnw.cmd spring-boot:run
+```
+
+Once running, the application will be available at:
+
+```arduino
+http://localhost:8080
+```
+
+---
+
+## 📚 API Documentation
+
+Swagger UI is available at:
+
+```bash
+http://localhost:8080/swagger-ui.html
+```
+
+---
+
+## 🧪 Example API Flow
+
+Here's a sample flow to help you understand how to interact with the API after starting the application.
+
+### 1. Get All Products 
+
+```bash
+GET /products
+```
+
+The database is automatically populated with 10 sample products using a Flyway migration script.
+
+### 2. Create a Shopping Cart 
+
+```bash
+POST /carts
+```
+
+This will return the cart ID. You don't need to be logged in to create a cart.
+
+### 3. Add Items to Cart 
+
+Once you have a cart ID, you can add products to it by sending:
+
+```bash
+POST /carts/{cartId}/items
+```
+
+**Request body example**:
+```json
+{
+  "productId": 1
+}
+```
+
+### 4. Register a New User 
+To check out, you have to register and login first: 
+
+```bash
+POST /users
+```
+
+**Request body**:
+
+```json
+{
+  "name": "John Doe",
+  "email": "john@example.com",
+  "password": "123456"
+}
+```
+
+### 5. Login to Get an Access Token 
+
+```bash
+POST /auth/login 
+```
+
+**Request body**:
+```json
+{
+  "email": "john@example.com",
+  "password": "123456"
+}
+```
+
+**Response body**:
+```json
+{
+  "token": "your-json-web-token"
+}
+```
+
+### 6. Checkout 
+
+```bash
+POST /checkout 
+```
+
+**Headers**
+```bash
+Authorization: Bearer your-json-web-token
+```
+
+**Request body**
+```json
+{
+  "cartId": "your-cart-id"
+}
+```
+
+This endpoint returns a Stripe checkout URL. Open it in your browser to complete the payment using a test card:
+
+```yaml
+Card: 4242 4242 4242 4242
+Expiry: Any future date
+CVC: Any 3 digits
+```
+
+### 7. Webhook & Order Status Update
+
+Once payment is completed, Stripe will trigger a webhook call to:
+
+```bash
+POST /checkout/webhook 
+```
+
+Our backend listens for this event and updates the order status in the database accordingly.
+
+---
+
+## 🧠 Learn More
+Want to learn how this project was built step by step?
+
+Check out the full course here: [Spring Boot: Mastering REST API Development](https://codewithmosh.com/p/spring-boot-building-apis)
+
+---
+
+## Running on this machine
+
+This clone differs from the course code in a few places. Everything below is local setup only — the API itself is unchanged.
+
+### Toolchain
+
+Built with **Java 25** (JDK 25.0.4) and **Spring Boot 3.5.16** instead of the course's Java 17 and Boot 3.4.1. Dependencies bumped to versions that work on Java 25:
+
+| Dependency | Course | Here |
+| --- | --- | --- |
+| Spring Boot parent | 3.4.1 | 3.5.16 |
+| Java | 17 | 25 |
+| Lombok | Boot-managed | 1.18.48 (+ `lombok-mapstruct-binding` 0.2.0) |
+| MapStruct | 1.6.2 / 1.6.3 | 1.6.3 |
+| jjwt-jackson | 0.12.5 | 0.12.6 |
+| springdoc-openapi | 2.8.6 | 2.8.17 |
+| stripe-java | 29.0.0 | 33.4.2 |
+
+Flyway and Spring Security come from the Boot parent.
+
+### Database
+
+The course connects to a local MySQL on port **3306** as `root` / `MyPassword!`. The MySQL Windows service on this machine has a different root password, so the dev database runs in Docker instead:
+
+```bash
+docker start store-mysql
+```
+
+That container is MySQL 8.4.11, published on host port **3307**, database `store_api`.
+
+`application-dev.yaml` reads the connection from `DB_URL`, `DB_USERNAME` and `DB_PASSWORD`. `.env.example` already carries the Docker container's values, so renaming it to `.env` (step 2 above) gives you a working database connection — `JWT_SECRET` must still be filled in (see [Stripe keys are optional](#stripe-keys-are-optional) below):
+
+```
+DB_URL=jdbc:mysql://localhost:3307/store_api?createDatabaseIfNotExist=true
+DB_USERNAME=root
+DB_PASSWORD=MyPassword!
+```
+
+If those variables are unset, `application-dev.yaml` falls back to the same 3307 container
+rather than the course's 3306, so no code path on this machine can reach the MySQL Windows
+service.
+
+Flyway applies `V1`–`V6` on startup.
+
+### Stripe keys are optional
+
+`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET_KEY` default to empty, so the app starts without a Stripe account. Until `STRIPE_SECRET_KEY` is set in `.env`, `POST /checkout` returns the course's payment error. `JWT_SECRET` is still required — generate one with `openssl rand -base64 32`.
+
+### Run it
+
+```bash
+mvn spring-boot:run
+```
+
+or, using the wrapper on Windows:
+
+```bash
+mvnw.cmd spring-boot:run
+```
+
+Swagger UI: <http://localhost:8080/swagger-ui.html>
+
+`mvn clean verify` (or `mvn clean package`) also needs the container running: the only
+test is a `@SpringBootTest` context load, which opens a real connection and runs Flyway.
+Start it first with `docker start store-mysql`, or the build fails on the datasource.
+
+The `flyway-maven-plugin` block in `pom.xml` is pointed at port **3307** as well, so an
+explicit `mvn flyway:info` / `flyway:migrate` targets the Docker container and never the
+MySQL Windows service on 3306. Boot runs Flyway at startup, so those goals are not
+normally needed. The course's `<version>10.15.0</version>` pin was dropped: Boot 3.5.16
+puts flyway-core 11.7.2 on the plugin's class realm, and a Flyway 10 plugin loaded next to
+a Flyway 11 core fails with `IncompatibleClassChangeError` before it reaches a database.
+Without the pin the plugin resolves to the Boot-managed 11.7.x and matches the runtime.
+
+Note that the course's `<cleanDisabled>false</cleanDisabled>` is kept, so `mvn flyway:clean`
+really will drop every object in `store_api` on the container. Only the container — never
+3306 — but it is destructive; don't run it unless that is what you want.
+
+### Making an admin
+
+Register a user through `POST /users`, then promote it in the Docker database:
+
+```bash
+docker exec -it store-mysql mysql -uroot -p store_api
+```
+
+```sql
+UPDATE users SET role = 'ADMIN' WHERE email = 'you@example.com';
+```
+
+Log in again afterwards — the role is baked into the access token.
+
+---
+
+## Fixes beyond the course
+
+This port is byte-identical to Mosh's finished code except for the stack bumps listed
+under [Toolchain](#toolchain) and the fixes below. Every deviation is marked in the source
+with a one-line comment starting with `// Fix beyond the course:` (or
+`-- Fix beyond the course:` in SQL), so `grep -r "Fix beyond the course"` lists them all.
+
+| Area | Change | Why |
+| --- | --- | --- |
+| Users | `POST /users/{id}/change-password` now hashes the new password with the same `PasswordEncoder` used at registration | The course stored the new password in plaintext; the account was locked out because login compares against a BCrypt hash |
+| Users | `UNIQUE` index on `users.email` (migration `V6`), duplicate check on `PUT /users/{id}`, and registration and update catch the constraint violation | Two registrations racing on the same email both succeeded and the second could not log in; an update could take over another user's email |
+| Users | `/users/{id}` endpoints are owner-or-admin, `GET`/`HEAD /users` are admin-only; a foreign id returns `403 {"error": "You don't have access to this user."}` | Any authenticated user could read, edit and delete any other user; Spring MVC serves `HEAD` through the `GET` handler, so a `GET`-only rule let a normal user run the list query with `HEAD` |
+| Users | `UpdateUserRequest` is validated and partial updates keep the existing fields | A body with only `name` blanked out the email (and vice-versa); malformed values were written as-is |
+| Auth | Access tokens carry `type=access` and refresh tokens `type=refresh`; the filter only authenticates a token typed `access` and `/auth/refresh` only accepts a token typed `refresh`. Tokens minted by a build without the claim are rejected — log in again once | A 7-day refresh token could be sent as a Bearer header and used as a 7-day access token; a negative "not a refresh token" check would still have accepted an untyped token from an older build |
+| Auth | `POST /auth/refresh` with a refresh token whose user no longer exists returns `401` | The course's `orElseThrow()` threw `NoSuchElementException` for a deleted user; with error dispatch permitted that became `500 {"error": "Unexpected error."}` plus a stack trace for a normal client condition |
+| Auth | Error dispatch (`/error`) is permitted, so real errors return `400`/`405`/`406`/`409`/`415`/`500` with an `{"error": ...}` body | Every server-side failure surfaced as a blank `401` because the security filter intercepted the forward to `/error` |
+| Common | The feature-level error handlers (`{"error": ...}` bodies in the cart, user, order and checkout controllers) and the global `409` preset `Content-Type: application/json` | With an `Accept` header that excludes JSON (`text/html`, `application/xml`) the handler's body could not be written, the original exception fell through to `/error` and the client got a `500` Whitelabel page instead of the intended `400`/`403`/`404`/`409` |
+| Auth | `403` responses carry a JSON `{"error": ...}` body, served as `application/json;charset=UTF-8` | Forbidden requests returned an empty body, unlike every other error in the API; without an explicit character encoding Tomcat labelled the body `charset=ISO-8859-1` |
+| Auth | `Authorization: Bearer` header is parsed with `substring` instead of `replace` | `replace` stripped every occurrence of `Bearer ` and accepted `Bearer Bearer <token>` |
+| Auth | `HEAD /products` is permitted alongside `GET` | Health checks and proxies that send `HEAD` got `401` for a public endpoint |
+| Auth | Swagger UI has an **Authorize** button (`bearerAuth` security scheme) | Protected endpoints could not be tried from `/swagger-ui.html` without a browser extension |
+| Products | `POST /products` and `PUT /products/{id}` are validated; deleting a product that belongs to an order returns `409` | Empty names and negative prices were stored; deleting an ordered product hit the foreign key and came back as a blank `401` |
+| Products | `POST /products` ignores an `id` in the request body | MapStruct copied the id into the new entity and `save()` merged it into the existing row, so an admin could overwrite a catalogue product and still get `201 Created` |
+| Carts | `POST /carts/{cartId}/items` validates `productId` | A missing or null `productId` reached the repository and became a `500` (surfacing as a blank `401`) |
+| Carts | `@Max` message typo fixed on `UpdateCartItemRequest.quantity` | The validation message did not match the rule it enforced |
+| Payments | Webhook: missing `Stripe-Signature` header returns `400`; malformed `order_id` metadata and unknown orders are handled without crashing; only `PENDING` orders transition | A request without the header threw and became a blank `401`; a bad metadata value crashed the handler; an order already `PAID` or `FAILED` took whatever status a late or replayed event carried |
+| Payments | `WARN` logged at startup when `STRIPE_SECRET_KEY` is blank | The app started silently with Stripe unconfigured and only failed at the first checkout |
+| Users | `@Builder.Default` on `User.favoriteProducts` | Lombok's builder ignored the field initialiser, so `User.builder().build()` had a `null` set and `addFavoriteProduct` threw `NullPointerException` |
+| Common | `GET /` is public and the home page links to Swagger UI and `/products` | No security rule permitted `/`, so opening the root URL in a browser returned a blank `401` and looked like the app was down |
+
+### Still as in the course (known limitations)
+
+These are unchanged because the course does not address them and fixing them would change the API's shape:
+
+- **Carts are anonymous.** The cart UUID is the only credential; anyone who knows it can read and change the cart.
+- **Access tokens outlive the user.** A deleted or demoted user's access token stays valid until it expires (15 minutes) — the JWT is stateless and nothing checks the database on each request. (The refresh token of a deleted user is rejected with `401`, see the table above, so no new access token can be minted for it.)
+- **Concurrent adds to one cart can collide.** Two simultaneous `POST /carts/{cartId}/items` for the same product may both try to insert the same row; the loser now gets a `409` instead of a blank `401`, but there is no retry.
+- **Webhook has no idempotency or amount check.** A replayed `payment_intent.succeeded` event is processed again, and the paid amount is never compared with the order total.
+- **`refreshToken` cookie has no `SameSite` attribute.** The course sets `HttpOnly`, `Secure` and `Path=/auth/refresh` only.
+- **`mvn flyway:clean` is enabled** (`cleanDisabled=false`, the course default) and drops every object in the Docker dev database `store_api`.
+- **Stripe API version.** stripe-java 33.4.2 pins Stripe API version `2026-08-26.dahlia`. If the Stripe account or webhook endpoint is on another version, the webhook payload deserialises to nothing and orders stay `PENDING` — the Stripe CLI (`stripe listen`) uses the account's default version, so check it under **Developers > API version**.
+- **Blank `JWT_SECRET` starts the app but breaks login.** Every `POST /auth/login` returns `401` and the log shows a `WeakKeyException`; there is no startup check. Generate one with `openssl rand -base64 32`.
