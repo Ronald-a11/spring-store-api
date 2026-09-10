@@ -744,7 +744,10 @@ function renderOrders() {
     const status = String(order.status || '').toUpperCase();
     const items = order.items || [];
     const highlighted = state.highlightOrderId !== null && String(order.id) === state.highlightOrderId;
-    if (highlighted && status === 'PAID') confirmPaymentBanner(order.id); // the webhook has landed: "confirmed"
+    // Fix beyond the course: the webhook has landed - PAID ("confirmed") or, after payment_intent.payment_failed,
+    // FAILED/CANCELED; the amber "will show as PAID" banner must not stay above a red badge (a delayed-notification
+    // method such as ACH or SEPA is only submitted, not settled, when Stripe sends the customer back).
+    if (highlighted && (status === 'PAID' || status === 'FAILED' || status === 'CANCELED')) confirmPaymentBanner(order.id, status);
     return el('article', { class: highlighted ? 'order highlight' : 'order' },
       el('div', { class: 'order-head' },
         el('strong', {}, `Order #${order.id}`),
@@ -777,10 +780,14 @@ function showBanner(message, kind) {
 // Fix beyond the course: the return URL only proves that Stripe sent the customer back; the order becomes PAID when
 // Stripe's payment_intent.succeeded webhook lands (CheckoutService), which can be late or, without
 // STRIPE_WEBHOOK_SECRET_KEY, never - so the banner says "being confirmed" until GET /orders shows the order as PAID
-// and renderOrders() turns it into the confirmation here. A dismissed banner stays dismissed.
-function confirmPaymentBanner(orderId) {
-  const message = `Payment received — order #${orderId} is confirmed. Thank you!`;
-  if (!$('checkout-banner').hidden && $('banner-text').textContent !== message) showBanner(message, 'success');
+// and renderOrders() turns it into the confirmation here - or, when the payment_intent.payment_failed webhook ended
+// the order FAILED (CANCELED), into the failure notice. A dismissed banner stays dismissed.
+function confirmPaymentBanner(orderId, status) {
+  const paid = status === 'PAID';
+  const message = paid
+    ? `Payment received — order #${orderId} is confirmed. Thank you!`
+    : `Payment for order #${orderId} did not go through — see My orders.`;
+  if (!$('checkout-banner').hidden && $('banner-text').textContent !== message) showBanner(message, paid ? 'success' : 'error');
 }
 
 // Fix beyond the course: F3 both return URLs serve this page; the banner is filled in from the URL, which is then

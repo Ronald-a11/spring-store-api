@@ -95,7 +95,7 @@ label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; 
 .badge.status-pending { background: #fff3d6; color: var(--warn); }
 .badge.status-failed, .badge.status-canceled { background: #fbeeed; color: var(--danger); }
 
-/* Fix beyond the course: F3 checkout-return banner (success = green, cancel = amber), dismissable. */
+/* Fix beyond the course: F3 checkout-return banner (success = green, cancel = amber, failed payment = red), dismissable. */
 .banner {
   display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem;
   margin: 1rem 1.5rem 0; padding: 0.75rem 1rem; border: 1px solid var(--line); border-radius: var(--radius);
@@ -104,6 +104,7 @@ label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; 
 .banner-text { margin: 0; font-weight: 600; }
 .banner-success { background: #e8f0e8; border-color: #bcd6bd; color: var(--accent-dark); }
 .banner-info { background: #fff8e6; border-color: #f0dfb0; color: var(--warn); }
+.banner-error { background: #fbeeed; border-color: #ecc8c5; color: var(--danger); }
 
 /* Category filter */
 .categories { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 1rem 1.5rem 0; }

@@ -1290,7 +1290,7 @@ esac
 req GET "/app.js"
 expect_status "F: GET /app.js is 200" 200
 for needle in "'/categories'" 'CATEGORY_ICONS' 'Payment received' 'is confirmed. Thank you!' \
-              'is being confirmed' 'function confirmPaymentBanner' \
+              'is being confirmed' 'function confirmPaymentBanner' 'did not go through' \
               'Checkout cancelled' 'No products yet.' 'qty-input' "history.replaceState(null, '', '/')" \
               "'aria-hidden': 'true'" 'Tyrone Grocery Shop'; do
   expect_body_contains "F1-F7: app.js has $needle" "$needle"
@@ -1301,7 +1301,7 @@ expect_eq "F: app.js has no .innerHTML / insertAdjacentHTML / outerHTML" "$UNSAF
 
 req GET "/app.css"
 expect_status "F: GET /app.css is 200" 200
-for needle in '.banner-success' '.banner-info' '.qty-input' '.order.highlight' '.order-items summary' \
+for needle in '.banner-success' '.banner-info' '.banner-error' '.qty-input' '.order.highlight' '.order-items summary' \
               '.product-count' '.site-header { position: sticky'; do
   expect_body_contains "F2-F7: app.css has $needle" "$needle"
 done
