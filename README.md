@@ -388,9 +388,14 @@ runtime, non-root user, both base images pinned by digest so a rebuild cannot si
 change the JDK, and the build stage pins the SHA-256 of the Maven distribution the
 wrapper downloads, so a tampered download fails the build) and a `railway.json` that
 asks Railway to build from the `Dockerfile`, health-check `GET /` (300 s) and restart on
-failure with 5 retries — on the current CLI-uploaded deployments Railway has not applied
-the file (no healthcheck step runs and the restart limit is Railway's default 10), so set
-the health check under service **Settings → Deploy** as well.
+failure with 5 retries — on the CLI-uploaded deployments Railway has not applied the file:
+the deployment metadata records no config file at all (`fileServiceManifest` is empty,
+checked on two uploads, although the file is valid JSON, committed and excluded by neither
+`.railwayignore` nor `.gitignore`), so no healthcheck step runs and the restart limit is
+Railway's default 10. Set the health check (path `/`, 300 s) and the restart policy under
+service **Settings → Deploy**; alternatively point **Settings → Config-as-code → Config file
+path** at `railway.json` and confirm on the next `railway up` that the deployment shows a
+healthcheck step.
 
 Create a Railway project from this GitHub repo (Railway builds `main`, so the `Dockerfile`,
 `railway.json` and `.railwayignore` must be committed there) — or deploy from the CLI:
