@@ -127,10 +127,11 @@ printf 'Smoke test against %s  (run id %s)\n' "$BASE_URL" "$TS"
 ############################################################
 section "Infrastructure / docs"
 ############################################################
-# SecurityConfig ends with anyRequest().authenticated() and NO SecurityRules
-# permits "/", so the Thymeleaf home page is 401 for anonymous callers.
+# Fix beyond the course: SwaggerSecurityRules permits GET "/", so the Thymeleaf
+# home page is public and links to the API docs.
 req GET "/"
-expect_status "GET / anonymous is 401 (no permitAll rule for /)" 401
+expect_status "GET / anonymous is 200 (public home page)" 200
+expect_body_contains "GET / links to Swagger UI" "swagger-ui/index.html"
 
 req GET "/swagger-ui.html"
 expect_status "GET /swagger-ui.html redirects (SwaggerSecurityRules permitAll)" 302
