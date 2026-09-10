@@ -133,6 +133,25 @@ req GET "/"
 expect_status "GET / anonymous is 200 (public home page)" 200
 expect_body_contains "GET / links to Swagger UI" "swagger-ui/index.html"
 
+# Fix beyond the course: the home page is a storefront driven by /app.js; its
+# assets are permitted for GET only (SwaggerSecurityRules), and the template
+# must not contain Thymeleaf inlining sequences ("[[" / "[(") that would be
+# processed as expressions.
+expect_body_contains "GET / loads the storefront script" '<script src="/app.js">'
+expect_body_contains "GET / loads the storefront stylesheet" 'href="/app.css"'
+case "$BODY" in
+  *"[["*|*"[("*) bad "GET / has no Thymeleaf inlining sequences" "rendered page contains '[[' or '[('" ;;
+  *) ok "GET / has no Thymeleaf inlining sequences" ;;
+esac
+
+req GET "/app.js"
+expect_status "GET /app.js anonymous is 200 (storefront asset, permitAll GET only)" 200
+expect_body_contains "GET /app.js is the storefront script" "Mosh's Grocery"
+req GET "/app.css"
+expect_status "GET /app.css anonymous is 200 (storefront asset, permitAll GET only)" 200
+req POST "/app.js"
+expect_status "POST /app.js anonymous is 401 (only GET is permitted)" 401
+
 req GET "/swagger-ui.html"
 expect_status "GET /swagger-ui.html redirects (SwaggerSecurityRules permitAll)" 302
 
@@ -336,10 +355,11 @@ unset CT
 expect_status "S1: POST /auth/login with Content-Type: text/plain is 415" 415
 expect_body_contains "S1: 415 error body" "Unsupported media type."
 
-# Now that we have a token, the Thymeleaf home page is reachable.
+# The Thymeleaf home page renders the same storefront with a token as without.
 req GET "/" "" "$TOKEN_A"
 expect_status "GET / authenticated renders the Thymeleaf page" 200
-expect_body_contains "GET / renders 'Hello Mosh'" "Hello Mosh"
+# th:text HTML-escapes the apostrophe, so the rendered h1 reads Mosh&#39;s Grocery.
+expect_body_contains "GET / renders the store name from the model (h1)" "<h1>Mosh&#39;s Grocery</h1>"
 
 ############################################################
 section "Admin - promotion & role-gated endpoints"

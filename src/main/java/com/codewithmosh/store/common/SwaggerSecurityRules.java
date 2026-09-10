@@ -12,6 +12,8 @@ public class SwaggerSecurityRules implements SecurityRules {
         registry
             // Fix beyond the course: the home page is public (the course left "/" behind anyRequest().authenticated(), so the root URL answered 401).
             .requestMatchers(HttpMethod.GET, "/").permitAll()
+            // Fix beyond the course: the storefront's assets (src/main/resources/static/) are public, GET only and nothing broader.
+            .requestMatchers(HttpMethod.GET, "/app.js", "/app.css", "/favicon.ico").permitAll()
             .requestMatchers("/swagger-ui/**").permitAll()
             .requestMatchers("/swagger-ui.html").permitAll()
             .requestMatchers("/v3/api-docs/**").permitAll();
