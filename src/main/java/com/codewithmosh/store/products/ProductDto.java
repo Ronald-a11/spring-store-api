@@ -2,9 +2,11 @@ package com.codewithmosh.store.products;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -35,4 +37,12 @@ public class ProductDto {
     @Schema(implementation = Integer.class, description = "ID of an existing category; the seed data has 1 Produce, 2 Dairy, 3 Bakery, 4 Meat & Seafood, 5 Pantry Staples, 6 Beverages.", example = "1")
     @NotNull(message = "Category ID is required.")
     private Byte categoryId;
+
+    @Schema(description = "Units in stock. Optional in POST /products (defaults to 0) and ignored by PUT /products/{id}; change it with PUT /products/{id}/stock.", example = "100")
+    @PositiveOrZero(message = "Stock cannot be negative.")
+    @Max(value = 1_000_000, message = "Stock cannot be more than 1000000.")
+    private Integer stock;
+
+    @Schema(description = "URL of the product photo, or null when it has none. Ignored in request bodies; upload a photo with PUT /products/{id}/image.", example = "/images/1", accessMode = Schema.AccessMode.READ_ONLY)
+    private String imageUrl;
 }

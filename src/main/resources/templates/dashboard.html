@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head(title='Dashboard | Tyrone Grocery Shop')}">
+    <title>Dashboard | Tyrone Grocery Shop</title>
+</head>
+<body>
+<th:block th:replace="~{fragments :: top}"></th:block>
+<header th:replace="~{fragments :: header(page='dashboard')}"></header>
+<div th:replace="~{fragments :: banner}"></div>
+
+<main id="main" class="mx-auto max-w-7xl px-4 pt-8 sm:px-6 sm:pt-12 lg:px-8">
+    <section id="dashboard-gate" class="mx-auto max-w-lg pt-6" aria-label="Dashboard access" hidden>
+        <div id="gate-card" class="card"></div>
+    </section>
+
+    <div id="dashboard" hidden>
+        <div class="flex animate-fade-up flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+                <nav aria-label="Breadcrumb">
+                    <ol class="flex items-center gap-1.5 text-sm text-stone-500">
+                        <li><a href="/" class="transition hover:text-stone-900">Shop</a></li>
+                        <li aria-hidden="true"><svg class="icon size-3.5 text-stone-400"><use href="#i-chevron-right"/></svg></li>
+                        <li class="font-medium text-stone-800" aria-current="page">Dashboard</li>
+                    </ol>
+                </nav>
+                <h1 class="mt-3 text-3xl font-bold tracking-tight text-stone-900">Dashboard</h1>
+                <p id="dashboard-greeting" class="mt-1.5 text-stone-500">Manage orders, products and stock.</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <button id="refresh-btn" type="button" class="btn btn-secondary"><svg class="icon"><use href="#i-refresh"/></svg>Refresh</button>
+                <button id="add-product-btn" type="button" class="btn btn-primary"><svg class="icon"><use href="#i-plus"/></svg>Add product</button>
+            </div>
+        </div>
+
+        <div id="dashboard-tabs" class="tabs mt-8" role="tablist" aria-label="Dashboard sections">
+            <button type="button" id="tab-overview" class="tab" role="tab" data-tab="overview" aria-controls="panel-overview" aria-selected="true">
+                <svg class="icon size-4"><use href="#i-dashboard"/></svg>Overview
+            </button>
+            <button type="button" id="tab-orders" class="tab" role="tab" data-tab="orders" aria-controls="panel-orders" aria-selected="false" tabindex="-1">
+                <svg class="icon size-4"><use href="#i-receipt"/></svg>Orders <span id="orders-tab-count" class="tab-count" hidden></span>
+            </button>
+            <button type="button" id="tab-products" class="tab" role="tab" data-tab="products" aria-controls="panel-products" aria-selected="false" tabindex="-1">
+                <svg class="icon size-4"><use href="#i-package"/></svg>Products <span id="products-tab-count" class="tab-count" hidden></span>
+            </button>
+        </div>
+
+        <section id="panel-overview" class="animate-fade-in pt-6" role="tabpanel" aria-labelledby="tab-overview">
+            <div id="kpis" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"></div>
+
+            <div class="mt-6 grid gap-6 lg:grid-cols-5">
+                <section class="card overflow-hidden lg:col-span-3" aria-labelledby="recent-heading">
+                    <div class="flex items-center justify-between gap-4 border-b border-stone-100 px-5 py-4">
+                        <div>
+                            <h2 id="recent-heading" class="font-semibold text-stone-900">Recent orders</h2>
+                            <p class="text-sm text-stone-500">The latest orders from every customer</p>
+                        </div>
+                        <button type="button" class="link inline-flex items-center gap-1 text-sm" data-go-tab="orders">View all<svg class="icon size-4"><use href="#i-arrow-right"/></svg></button>
+                    </div>
+                    <ul id="recent-orders" class="divide-y divide-stone-100"></ul>
+                </section>
+
+                <section class="card overflow-hidden lg:col-span-2" aria-labelledby="restock-heading">
+                    <div class="flex items-center justify-between gap-4 border-b border-stone-100 px-5 py-4">
+                        <div>
+                            <h2 id="restock-heading" class="font-semibold text-stone-900">Needs restocking</h2>
+                            <p class="text-sm text-stone-500">Products that are low or sold out</p>
+                        </div>
+                        <button type="button" class="link inline-flex items-center gap-1 text-sm" data-go-tab="products" data-goods-filter="attention">Manage<svg class="icon size-4"><use href="#i-arrow-right"/></svg></button>
+                    </div>
+                    <ul id="restock-list" class="divide-y divide-stone-100"></ul>
+                </section>
+            </div>
+        </section>
+
+        <section id="panel-orders" class="animate-fade-in pt-6" role="tabpanel" aria-labelledby="tab-orders" hidden>
+            <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div id="order-filters" class="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 py-0.5 sm:-mx-6 sm:px-6 lg:mx-0 lg:px-0" role="group" aria-label="Show orders by status"></div>
+                <div class="relative lg:w-80">
+                    <svg class="icon pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-stone-400"><use href="#i-search"/></svg>
+                    <input id="orders-search" type="search" class="input pl-10" placeholder="Search order #, name or e-mail" aria-label="Search orders" autocomplete="off">
+                </div>
+            </div>
+            <div class="card mt-4 overflow-hidden">
+                <div id="orders-table" class="overflow-x-auto"></div>
+            </div>
+        </section>
+
+        <section id="panel-products" class="animate-fade-in pt-6" role="tabpanel" aria-labelledby="tab-products" hidden>
+            <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div id="goods-filters" class="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 py-0.5 sm:-mx-6 sm:px-6 lg:mx-0 lg:px-0" role="group" aria-label="Show products by stock"></div>
+                <div class="relative lg:w-80">
+                    <svg class="icon pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-stone-400"><use href="#i-search"/></svg>
+                    <input id="goods-search" type="search" class="input pl-10" placeholder="Search products" aria-label="Search products by name" autocomplete="off">
+                </div>
+            </div>
+            <div class="card mt-4 overflow-hidden">
+                <div id="goods-table" class="overflow-x-auto"></div>
+            </div>
+        </section>
+    </div>
+</main>
+
+<footer th:replace="~{fragments :: footer}"></footer>
+<th:block th:replace="~{fragments :: dialogs}"></th:block>
+
+<dialog id="product-editor" class="sheet max-w-lg" aria-labelledby="product-form-heading">
+    <form id="product-form" class="flex h-full flex-col" novalidate>
+        <div class="flex items-center justify-between gap-4 border-b border-stone-200 px-6 py-4">
+            <div class="min-w-0">
+                <h2 id="product-form-heading" class="truncate text-base font-bold text-stone-900">Add product</h2>
+                <p id="product-form-subtitle" class="text-xs text-stone-500">New products show up in the shop straight away.</p>
+            </div>
+            <button type="button" class="btn-icon" data-close aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+        </div>
+
+        <div class="flex-1 space-y-5 overflow-y-auto px-6 py-6">
+            <div>
+                <span class="label">Photo</span>
+                <div class="flex items-stretch gap-4">
+                    <div id="photo-preview" class="grid size-28 shrink-0 place-items-center overflow-hidden rounded-2xl bg-stone-100 text-stone-400 ring-1 ring-stone-200"></div>
+                    <label id="photo-drop" class="flex flex-1 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-stone-300 px-4 py-4 text-center transition hover:border-brand-500 hover:bg-brand-50/50 has-focus-visible:border-brand-600 data-dragging:border-brand-500 data-dragging:bg-brand-50">
+                        <svg class="icon size-6 text-stone-400"><use href="#i-upload"/></svg>
+                        <span class="mt-2 text-sm font-semibold text-stone-800">Click to upload <span class="font-normal text-stone-500">or drag and drop</span></span>
+                        <span class="mt-1 text-xs text-stone-500">JPEG, PNG or WebP, up to 2 MB</span>
+                        <input id="photo-input" type="file" accept="image/jpeg,image/png,image/webp" class="sr-only">
+                    </label>
+                </div>
+                <button id="remove-photo-btn" type="button" class="btn btn-danger-soft btn-sm mt-3" hidden><svg class="icon"><use href="#i-trash"/></svg>Remove photo</button>
+            </div>
+
+            <div>
+                <label class="label" for="product-name">Name</label>
+                <input id="product-name" name="name" required maxlength="255" class="input" placeholder="e.g. Organic bananas">
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="label" for="product-price">Price</label>
+                    <div class="relative">
+                        <span class="pointer-events-none absolute inset-y-0 left-3.5 grid place-items-center text-sm text-stone-400">$</span>
+                        <input id="product-price" name="price" type="number" min="0.01" step="0.01" required class="input pl-7" placeholder="0.00">
+                    </div>
+                </div>
+                <div>
+                    <label class="label" for="product-stock">Stock</label>
+                    <input id="product-stock" name="stock" type="number" min="0" max="1000000" step="1" value="0" required class="input">
+                </div>
+            </div>
+
+            <div>
+                <label class="label" for="product-category">Category</label>
+                <select id="product-category" name="categoryId" required class="input"></select>
+            </div>
+
+            <div>
+                <label class="label" for="product-description">Description</label>
+                <textarea id="product-description" name="description" rows="4" required class="input resize-y" placeholder="What makes it worth buying?"></textarea>
+            </div>
+
+            <p id="product-form-error" class="rounded-xl bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700 empty:hidden" role="alert"></p>
+        </div>
+
+        <div class="flex justify-end gap-2 border-t border-stone-200 bg-stone-50/80 px-6 py-4">
+            <button type="button" class="btn btn-secondary" data-close>Cancel</button>
+            <button id="product-submit-btn" type="submit" class="btn btn-primary">Add product</button>
+        </div>
+    </form>
+</dialog>
+
+<script type="module" src="/js/dashboard.js"></script>
+</body>
+</html>

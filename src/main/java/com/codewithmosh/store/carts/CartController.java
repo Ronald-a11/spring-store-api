@@ -1,6 +1,7 @@
 package com.codewithmosh.store.carts;
 
 import com.codewithmosh.store.common.ErrorDto;
+import com.codewithmosh.store.products.OutOfStockException;
 import com.codewithmosh.store.products.ProductNotFoundException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -48,13 +49,14 @@ public class CartController {
     }
 
     @Operation(summary = "Add a product to a cart (public)",
-               description = "Adds one unit of the product; if the product is already in the cart its quantity is incremented by one instead. Returns the affected cart item.")
+               description = "Adds one unit of the product; if the product is already in the cart its quantity is incremented by one instead. The cart can't hold more units than the product has in stock. Returns the affected cart item.")
     @SecurityRequirements
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "The cart item after the add."),
-        @ApiResponse(responseCode = "400", description = "The product does not exist, or validation failed (a field-to-message map).",
+        @ApiResponse(responseCode = "400", description = "The product does not exist or has no more units in stock, or validation failed (a field-to-message map).",
                      content = @Content(schema = @Schema(type = "object"), examples = {
                          @ExampleObject(name = "Unknown product", value = "{\"error\": \"Product not found.\"}"),
+                         @ExampleObject(name = "Out of stock", value = "{\"error\": \"Bananas is out of stock.\"}"),
                          @ExampleObject(name = "Missing productId", value = "{\"productId\": \"Product ID is required.\"}")})),
         @ApiResponse(responseCode = "404", description = "No cart with this UUID.",
                      content = @Content(schema = @Schema(implementation = ErrorDto.class), examples = @ExampleObject(value = "{\"error\": \"Cart not found.\"}")))
@@ -82,13 +84,14 @@ public class CartController {
     }
 
     @Operation(summary = "Set the quantity of a cart item (public)",
-               description = "Sets the quantity (1 to 1000) of a product that is already in the cart.")
+               description = "Sets the quantity (1 to 1000, and no more than the product has in stock) of a product that is already in the cart.")
     @SecurityRequirements
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "The updated cart item."),
-        @ApiResponse(responseCode = "400", description = "The product is not in the cart, or validation failed (a field-to-message map).",
+        @ApiResponse(responseCode = "400", description = "The product is not in the cart or doesn't have that many units in stock, or validation failed (a field-to-message map).",
                      content = @Content(schema = @Schema(type = "object"), examples = {
                          @ExampleObject(name = "Product not in cart", value = "{\"error\": \"Product not found.\"}"),
+                         @ExampleObject(name = "Not enough stock", value = "{\"error\": \"Only 3 left in stock for Bananas.\"}"),
                          @ExampleObject(name = "Bad quantity", value = "{\"quantity\": \"Quantity must be less than or equal to 1000.\"}")})),
         @ApiResponse(responseCode = "404", description = "No cart with this UUID.",
                      content = @Content(schema = @Schema(implementation = ErrorDto.class), examples = @ExampleObject(value = "{\"error\": \"Cart not found.\"}")))
@@ -144,5 +147,10 @@ public class CartController {
     @ExceptionHandler(ProductNotFoundException.class)
     public ResponseEntity<Map<String, String>> handleProductNotFound() {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON).body(Map.of("error", "Product not found."));
+    }
+
+    @ExceptionHandler(OutOfStockException.class)
+    public ResponseEntity<ErrorDto> handleOutOfStock(Exception ex) {
+        return ResponseEntity.badRequest().contentType(MediaType.APPLICATION_JSON).body(new ErrorDto(ex.getMessage()));
     }
 }

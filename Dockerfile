@@ -4,7 +4,7 @@
 FROM eclipse-temurin:25-jdk@sha256:dcf835e52330939b6c9f90ecab8aafcbcaa8fbf48423db44de884cf978c10144 AS build
 WORKDIR /workspace
 
-# Build files first, so the dependency layer stays cached until pom.xml changes.
+# Build files first, so the dependency layers stay cached until pom.xml or package-lock.json changes.
 COPY .mvn/ .mvn/
 COPY mvnw mvnw.cmd pom.xml ./
 # Checksum of the Maven tarball that mvnw downloads (mvnw.cmd uses the zip, which hashes differently).
@@ -14,6 +14,10 @@ RUN printf '\ndistributionSha256Sum=%s\n' \
     && sed -i 's/\r$//' mvnw \
     && chmod +x mvnw \
     && ./mvnw -B -q dependency:go-offline
+
+# Node and the Tailwind CLI, installed by frontend-maven-plugin.
+COPY package.json package-lock.json ./
+RUN ./mvnw -B -q frontend:install-node-and-npm@install-node-and-npm frontend:npm@npm-install
 
 COPY src/ src/
 RUN ./mvnw -B -q -DskipTests package \

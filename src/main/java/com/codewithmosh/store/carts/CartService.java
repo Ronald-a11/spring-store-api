@@ -1,5 +1,7 @@
 package com.codewithmosh.store.carts;
 
+import com.codewithmosh.store.products.OutOfStockException;
+import com.codewithmosh.store.products.Product;
 import com.codewithmosh.store.products.ProductNotFoundException;
 import com.codewithmosh.store.products.ProductRepository;
 import lombok.AllArgsConstructor;
@@ -32,6 +34,9 @@ public class CartService {
             throw new ProductNotFoundException();
         }
 
+        var existingItem = cart.getItem(productId);
+        checkStock(product, existingItem == null ? 1 : existingItem.getQuantity() + 1);
+
         var cartItem = cart.addItem(product);
 
         cartRepository.save(cart);
@@ -59,6 +64,8 @@ public class CartService {
             throw new ProductNotFoundException();
         }
 
+        checkStock(cartItem.getProduct(), quantity);
+
         cartItem.setQuantity(quantity);
         cartRepository.save(cart);
 
@@ -85,5 +92,11 @@ public class CartService {
         cart.clear();
 
         cartRepository.save(cart);
+    }
+
+    private static void checkStock(Product product, int quantity) {
+        if (!product.hasStock(quantity)) {
+            throw new OutOfStockException(product.getName(), product.getStock());
+        }
     }
 }

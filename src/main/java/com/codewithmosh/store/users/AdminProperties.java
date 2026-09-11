@@ -16,6 +16,8 @@ import java.util.stream.Collectors;
 @Data
 public class AdminProperties {
     private String emails;
+    private String defaultEmail;
+    private String defaultPassword;
 
     public Set<String> emailSet() {
         if (emails == null || emails.isBlank()) {

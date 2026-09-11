@@ -14,9 +14,19 @@ public class HomeController {
         return "index";
     }
 
-    // Stripe sends the customer back to one of these pages after checkout.
-    @GetMapping({"/checkout-success", "/checkout-cancel"})
-    public String checkoutReturn(Model model) {
+    @GetMapping("/checkout-cancel")
+    public String checkoutCancel(Model model) {
         return index(model);
+    }
+
+    // Stripe sends the customer to /checkout-success after paying.
+    @GetMapping({"/my-orders", "/checkout-success"})
+    public String orders() {
+        return "orders";
+    }
+
+    @GetMapping("/dashboard")
+    public String dashboard() {
+        return "dashboard";
     }
 }

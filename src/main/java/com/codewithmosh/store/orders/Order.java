@@ -29,6 +29,10 @@ public class Order {
     @Enumerated(EnumType.STRING)
     private PaymentStatus status;
 
+    @Column(name = "fulfillment_status")
+    @Enumerated(EnumType.STRING)
+    private FulfillmentStatus fulfillmentStatus;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -42,6 +46,7 @@ public class Order {
         var order = new Order();
         order.setCustomer(customer);
         order.setStatus(PaymentStatus.PENDING);
+        order.setFulfillmentStatus(FulfillmentStatus.PROCESSING);
         order.setTotalPrice(cart.getTotalPrice());
 
         cart.getItems().forEach(item -> {
@@ -54,5 +59,9 @@ public class Order {
 
     public boolean isPlacedBy(User customer) {
         return this.customer.equals(customer);
+    }
+
+    public boolean isCanceled() {
+        return fulfillmentStatus == FulfillmentStatus.CANCELED;
     }
 }

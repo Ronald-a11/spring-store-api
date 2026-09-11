@@ -9,3 +9,6 @@ spring:
   jpa:
     show-sql: true
 websiteUrl: ${WEBSITE_URL:http://localhost:8080}
+admin:
+  default-email: ${DEFAULT_ADMIN_EMAIL:admin@tyronegrocery.local}
+  default-password: ${DEFAULT_ADMIN_PASSWORD:Admin@12345}

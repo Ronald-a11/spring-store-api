@@ -1,5 +1,6 @@
 # Build output and VCS
 target/
+node_modules/
 .git/
 .github/
 

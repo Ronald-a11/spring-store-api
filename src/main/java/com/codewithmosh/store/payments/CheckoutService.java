@@ -5,9 +5,11 @@ import com.codewithmosh.store.carts.CartEmptyException;
 import com.codewithmosh.store.carts.CartNotFoundException;
 import com.codewithmosh.store.carts.CartRepository;
 import com.codewithmosh.store.orders.OrderRepository;
+import com.codewithmosh.store.orders.OrderService;
 import com.codewithmosh.store.orders.PaymentStatus;
 import com.codewithmosh.store.auth.AuthService;
 import com.codewithmosh.store.carts.CartService;
+import com.codewithmosh.store.products.StockService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,8 +21,10 @@ import org.springframework.transaction.annotation.Transactional;
 public class CheckoutService {
     private final CartRepository cartRepository;
     private final OrderRepository orderRepository;
+    private final OrderService orderService;
     private final AuthService authService;
     private final CartService cartService;
+    private final StockService stockService;
     private final PaymentGateway paymentGateway;
 
     @Transactional
@@ -35,6 +39,7 @@ public class CheckoutService {
         }
 
         var order = Order.fromCart(cart, authService.getCurrentUser());
+        order.getItems().forEach(item -> stockService.reserve(item.getProduct(), item.getQuantity()));
 
         orderRepository.save(order);
 
@@ -51,12 +56,13 @@ public class CheckoutService {
         }
     }
 
+    @Transactional
     public void handleWebhookEvent(WebhookRequest request) {
         paymentGateway
             .parseWebhookRequest(request)
             .ifPresent(paymentResult -> {
                 // Ignore unknown or already-settled orders so Stripe gets a 200 and stops retrying.
-                var order = orderRepository.findById(paymentResult.getOrderId()).orElse(null);
+                var order = orderRepository.findByIdForUpdate(paymentResult.getOrderId()).orElse(null);
                 if (order == null) {
                     log.warn("Ignoring webhook event for unknown order {}", paymentResult.getOrderId());
                     return;
@@ -68,6 +74,9 @@ public class CheckoutService {
                 }
 
                 order.setStatus(paymentResult.getPaymentStatus());
+                if (paymentResult.getPaymentStatus() == PaymentStatus.FAILED) {
+                    orderService.cancel(order);
+                }
                 orderRepository.save(order);
             });
     }

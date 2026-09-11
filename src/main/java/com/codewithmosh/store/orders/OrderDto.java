@@ -14,6 +14,8 @@ public class OrderDto {
     private Long id;
     @Schema(description = "Payment status; PENDING until the Stripe webhook reports the payment.", example = "PENDING", allowableValues = {"PENDING", "PAID", "FAILED", "CANCELED"})
     private String status;
+    @Schema(description = "Where the order is on its way to the customer; set by an admin. CANCELED is final.", example = "PROCESSING", allowableValues = {"PROCESSING", "SHIPPED", "DELIVERED", "CANCELED"})
+    private String fulfillmentStatus;
     @Schema(description = "When the order was created.", example = "2026-09-10T12:34:56")
     private LocalDateTime createdAt;
     @Schema(description = "Ordered products and quantities.")

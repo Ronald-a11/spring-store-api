@@ -67,6 +67,20 @@ head_req() {
   BODY=""
 }
 
+upload() { # method path file-in-TMP token: sends the file as the multipart part "file"
+  local args=(-s -o "$TMP/body" -D "$TMP/hdr" -w '%{http_code}' -X "$1" "$BASE_URL$2" -F "file=@$3")
+  [ -n "${4:-}" ] && args+=(-H "Authorization: Bearer $4")
+  STATUS="$(cd "$TMP" && curl "${args[@]}")"
+  BODY="$(cat "$TMP/body")"
+  HDRS="$(cat "$TMP/hdr")"
+}
+
+get_image() { # path: downloads to $TMP/downloaded
+  STATUS="$(curl -s -o "$TMP/downloaded" -D "$TMP/hdr" -w '%{http_code}' "$BASE_URL$1")"
+  HDRS="$(cat "$TMP/hdr")"
+  BODY=""
+}
+
 mint_jwt() {
   python - "${SMOKE_ENV_FILE:-$PROJECT_DIR/.env}" "$1" <<'PY'
 import sys, re, json, hmac, hashlib, base64
@@ -129,8 +143,9 @@ req GET "/"
 expect_status "GET / anonymous is 200 (public home page)" 200
 expect_body_contains "GET / links to Swagger UI" "swagger-ui/index.html"
 
-expect_body_contains "GET / loads the storefront script" '<script src="/app.js">'
-expect_body_contains "GET / loads the storefront stylesheet" 'href="/app.css"'
+expect_body_contains "GET / loads the shop script" '<script type="module" src="/js/shop.js">'
+expect_body_contains "GET / loads the storefront stylesheet" 'href="/css/app.css"'
+expect_body_contains "GET / has the admin-only Dashboard link" '<a href="/dashboard" class="nav-link" data-requires="admin"'
 case "$BODY" in
   *"[["*|*"[("*) bad "GET / has no Thymeleaf inlining sequences" "rendered page contains '[[' or '[('" ;;
   *) ok "GET / has no Thymeleaf inlining sequences" ;;
@@ -139,16 +154,31 @@ esac
 head_req "/"
 expect_status "HEAD / anonymous is 200" 200
 
-req GET "/app.js"
-expect_status "GET /app.js anonymous is 200 (storefront asset, permitAll GET only)" 200
-expect_body_contains "GET /app.js is the storefront script" "Tyrone Grocery Shop"
-req GET "/app.css"
-expect_status "GET /app.css anonymous is 200 (storefront asset, permitAll GET only)" 200
+req GET "/my-orders"
+expect_status "GET /my-orders anonymous is 200 (the page holds no data)" 200
+expect_body_contains "GET /my-orders loads the orders script" '<script type="module" src="/js/orders.js">'
+req GET "/dashboard"
+expect_status "GET /dashboard anonymous is 200 (the page holds no data)" 200
+expect_body_contains "GET /dashboard loads the dashboard script" '<script type="module" src="/js/dashboard.js">'
+req POST "/dashboard"
+expect_status "POST /dashboard is 401 (GET only)" 401
+
+for script in ui common shop orders dashboard; do
+  req GET "/js/$script.js"
+  expect_status "GET /js/$script.js anonymous is 200 (page script, permitAll GET only)" 200
+done
+req GET "/js/common.js"
+expect_body_contains "GET /js/common.js is the storefront script" "Tyrone Grocery Shop"
+req GET "/css/app.css"
+expect_status "GET /css/app.css anonymous is 200 (storefront asset, permitAll GET only)" 200
+expect_header_contains "GET /css/app.css is revalidated on every load" "cache-control: no-cache"
+req GET "/fonts/plus-jakarta-sans-latin.woff2"
+expect_status "GET /fonts/plus-jakarta-sans-latin.woff2 anonymous is 200 (storefront asset)" 200
 req GET "/favicon.ico"
 expect_status "GET /favicon.ico anonymous is 200 (storefront asset, permitAll GET only)" 200
 expect_header_contains "GET /favicon.ico is served as an image" "content-type: image/"
-req POST "/app.js"
-expect_status "POST /app.js anonymous is 401 (only GET is permitted)" 401
+req POST "/js/shop.js"
+expect_status "POST /js/shop.js anonymous is 401 (only GET is permitted)" 401
 
 req GET "/swagger-ui.html"
 expect_status "GET /swagger-ui.html redirects (SwaggerSecurityRules permitAll)" 302
@@ -176,9 +206,8 @@ else
   bad "GET /products returns V5 seed data" "expected >=10 products, got '$PRODUCT_COUNT'"
 fi
 P1_ID="$(pyq "$BODY" "d[0]['id']")"
-P2_ID="$(pyq "$BODY" "d[1]['id']")"
-expect_eq "GET /products returns fields in the order id, name, price, description, categoryId" \
-  "$(pyq "$BODY" "list(d[0].keys())")" "['id', 'name', 'price', 'description', 'categoryId']"
+expect_eq "GET /products returns fields in the order id, name, price, description, categoryId, stock, imageUrl" \
+  "$(pyq "$BODY" "list(d[0].keys())")" "['id', 'name', 'price', 'description', 'categoryId', 'stock', 'imageUrl']"
 
 req GET "/products?categoryId=1"
 expect_status "GET /products?categoryId=1 is 200" 200
@@ -336,7 +365,7 @@ expect_body_contains "415 error body" "Unsupported media type."
 
 req GET "/" "" "$TOKEN_A"
 expect_status "GET / authenticated renders the Thymeleaf page" 200
-expect_body_contains "GET / renders the store name (h1)" "<h1>Tyrone Grocery Shop</h1>"
+expect_body_contains "GET / renders the store name (title)" "<title>Tyrone Grocery Shop</title>"
 
 section "Admin - promotion & role-gated endpoints"
 req POST "/users" "{\"name\":\"Admin $TS\",\"email\":\"$EMAIL_ADMIN\",\"password\":\"$PASS_A\"}"
@@ -497,6 +526,12 @@ if printf '%s' "$HDRS" | grep -qi "^location:.*/products/$NEW_PRODUCT_ID"; then
 else
   bad "POST /products sets Location header" "no matching Location in response headers"
 fi
+expect_eq "POST /products without a stock starts at 0" "$(pyq "$BODY" "d['stock']")" "0"
+expect_eq "POST /products has no photo yet" "$(pyq "$BODY" "d['imageUrl']")" "None"
+
+req POST "/products" "{\"name\":\"Negative Stock $TS\",\"price\":1.00,\"description\":\"x\",\"categoryId\":1,\"stock\":-1}" "$TOKEN_ADMIN"
+expect_status "POST /products with a negative stock is 400" 400
+expect_body_contains "negative stock message" "Stock cannot be negative."
 
 req POST "/products" '{}' "$TOKEN_ADMIN"
 expect_status "POST /products with an empty body is 400" 400
@@ -526,18 +561,110 @@ expect_status "PUT /products/{id} with a blank name is 400" 400
 expect_body_contains "PUT blank name message" "Name is required."
 
 req PUT "/products/$NEW_PRODUCT_ID" \
-  "{\"name\":\"Smoke Widget Updated\",\"price\":19.99,\"description\":\"updated\",\"categoryId\":2}" "$TOKEN_ADMIN"
+  "{\"name\":\"Smoke Widget Updated\",\"price\":19.99,\"description\":\"updated\",\"categoryId\":2,\"stock\":999}" "$TOKEN_ADMIN"
 expect_status "PUT /products/{id} as ADMIN is 200" 200
 expect_eq "PUT /products/{id} applied the new name" "$(pyq "$BODY" "d['name']")" "Smoke Widget Updated"
+expect_eq "PUT /products/{id} ignores stock in the body" "$(pyq "$BODY" "d['stock']")" "0"
 
 req GET "/products/$NEW_PRODUCT_ID"
 expect_eq "GET /products/{id} reflects the update" "$(pyq "$BODY" "d['name']")" "Smoke Widget Updated"
 
+section "Products - stock and photos"
+req PUT "/products/$NEW_PRODUCT_ID/stock" '{"stock":7}'
+expect_status "PUT /products/{id}/stock without a token is 401" 401
+req PUT "/products/$NEW_PRODUCT_ID/stock" '{"stock":7}' "$TOKEN_B"
+expect_status "PUT /products/{id}/stock as a normal USER is 403" 403
+req PUT "/products/$NEW_PRODUCT_ID/stock" '{"stock":7}' "$TOKEN_ADMIN"
+expect_status "PUT /products/{id}/stock as ADMIN is 200" 200
+expect_eq "PUT /products/{id}/stock applied the stock" "$(pyq "$BODY" "d['stock']")" "7"
+req PUT "/products/$NEW_PRODUCT_ID/stock" '{"stock":-1}' "$TOKEN_ADMIN"
+expect_status "PUT /products/{id}/stock with -1 is 400" 400
+expect_body_contains "negative stock message" "Stock cannot be negative."
+req PUT "/products/$NEW_PRODUCT_ID/stock" '{}' "$TOKEN_ADMIN"
+expect_status "PUT /products/{id}/stock without a stock is 400" 400
+expect_body_contains "missing stock message" "Stock is required."
+req PUT "/products/999999/stock" '{"stock":1}' "$TOKEN_ADMIN"
+expect_status "PUT /products/{id}/stock unknown id is 404" 404
+req PUT "/products/$NEW_PRODUCT_ID" \
+  "{\"name\":\"Smoke Widget Updated\",\"price\":21.00,\"description\":\"updated\",\"categoryId\":2}" "$TOKEN_ADMIN"
+expect_eq "PUT /products/{id} keeps the stock set with /stock" "$(pyq "$BODY" "d['stock']")" "7"
+CHECK_ERROR="$(docker exec store-mysql mysql -uroot -pMyPassword! store_api -e "UPDATE products SET stock = -1 WHERE id = $NEW_PRODUCT_ID;" 2>&1)"
+case "$CHECK_ERROR" in
+  *products_stock_not_negative*) ok "the database refuses a negative stock (CHECK constraint)" ;;
+  *) bad "the database refuses a negative stock (CHECK constraint)" "got: $CHECK_ERROR" ;;
+esac
+
+python - "$TMP" <<'PY'
+import sys, struct, zlib
+def chunk(kind, data):
+    return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
+rows = b''.join(b'\x00' + b'\x2e\x7d\x32' * 8 for _ in range(6))
+png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 8, 6, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b'')
+open(sys.argv[1] + '/photo.png', 'wb').write(png)
+open(sys.argv[1] + '/not-a-photo.png', 'wb').write(b'<html><script>alert(1)</script></html>')
+open(sys.argv[1] + '/too-big.jpg', 'wb').write(b'\xff\xd8\xff' + b'\x00' * (2 * 1024 * 1024 + 1))
+PY
+
+upload PUT "/products/$NEW_PRODUCT_ID/image" photo.png "$TOKEN_B"
+expect_status "PUT /products/{id}/image as a normal USER is 403" 403
+upload PUT "/products/$NEW_PRODUCT_ID/image" photo.png "$TOKEN_ADMIN"
+expect_status "PUT /products/{id}/image with a PNG as ADMIN is 200" 200
+IMAGE_URL="$(pyq "$BODY" "d['imageUrl']")"
+case "$IMAGE_URL" in
+  /images/*) ok "the upload returns the product with its imageUrl ($IMAGE_URL)" ;;
+  *) bad "the upload returns the product with its imageUrl" "got '$IMAGE_URL'" ;;
+esac
+
+get_image "$IMAGE_URL"
+expect_status "GET {imageUrl} anonymous is 200" 200
+expect_header_contains "the photo is served as image/png" "^content-type: *image/png"
+expect_header_contains "the photo is cacheable (a new upload gets a new URL)" "^cache-control:.*immutable"
+if cmp -s "$TMP/photo.png" "$TMP/downloaded"; then
+  ok "the served photo is byte-for-byte the uploaded file"
+else
+  bad "the served photo is byte-for-byte the uploaded file" "downloaded file differs"
+fi
+
+upload PUT "/products/$NEW_PRODUCT_ID/image" photo.png "$TOKEN_ADMIN"
+NEW_IMAGE_URL="$(pyq "$BODY" "d['imageUrl']")"
+if [ -n "$NEW_IMAGE_URL" ] && [ "$NEW_IMAGE_URL" != "$IMAGE_URL" ]; then
+  ok "replacing the photo gives it a new URL ($NEW_IMAGE_URL)"
+else
+  bad "replacing the photo gives it a new URL" "got '$NEW_IMAGE_URL', before '$IMAGE_URL'"
+fi
+get_image "$IMAGE_URL"
+expect_status "the replaced photo is gone (404)" 404
+
+upload PUT "/products/$NEW_PRODUCT_ID/image" not-a-photo.png "$TOKEN_ADMIN"
+expect_status "PUT /products/{id}/image with HTML named .png is 400" 400
+expect_body_contains "not-an-image message" "The photo must be a JPEG, PNG or WebP image."
+upload PUT "/products/$NEW_PRODUCT_ID/image" too-big.jpg "$TOKEN_ADMIN"
+expect_status "PUT /products/{id}/image over 2 MB is 413" 413
+expect_body_contains "too-big message" "The photo must be 2 MB or smaller."
+upload PUT "/products/999999/image" photo.png "$TOKEN_ADMIN"
+expect_status "PUT /products/{id}/image unknown id is 404" 404
+
+req GET "/products/$NEW_PRODUCT_ID"
+expect_eq "the rejected uploads kept the last photo" "$(pyq "$BODY" "d['imageUrl']")" "$NEW_IMAGE_URL"
+
+req DELETE "/products/$NEW_PRODUCT_ID/image" "" "$TOKEN_B"
+expect_status "DELETE /products/{id}/image as a normal USER is 403" 403
+req DELETE "/products/$NEW_PRODUCT_ID/image" "" "$TOKEN_ADMIN"
+expect_status "DELETE /products/{id}/image as ADMIN is 204" 204
+req GET "/products/$NEW_PRODUCT_ID"
+expect_eq "the product has no photo any more" "$(pyq "$BODY" "d['imageUrl']")" "None"
+get_image "$NEW_IMAGE_URL"
+expect_status "the removed photo is gone (404)" 404
+
+upload PUT "/products/$NEW_PRODUCT_ID/image" photo.png "$TOKEN_ADMIN"
+LAST_IMAGE_URL="$(pyq "$BODY" "d['imageUrl']")"
 req DELETE "/products/$NEW_PRODUCT_ID" "" "$TOKEN_ADMIN"
 expect_status "DELETE /products/{id} (unreferenced) as ADMIN is 204" 204
 
 req GET "/products/$NEW_PRODUCT_ID"
 expect_status "GET /products/{id} after delete is 404" 404
+get_image "$LAST_IMAGE_URL"
+expect_status "deleting the product deleted its photo (404)" 404
 
 req POST "/products" "{\"name\":\"Ordered Widget $TS\",\"price\":5.00,\"description\":\"referenced by an order\",\"categoryId\":1}" "$TOKEN_ADMIN"
 expect_status "POST /products creates the product to be ordered" 201
@@ -559,6 +686,15 @@ req GET "/products/$ORDERED_PRODUCT_ID"
 expect_status "the ordered product still exists after the rejected delete" 200
 
 section "Carts"
+# Products with a known stock, so the checks don't depend on the seed data's stock.
+req POST "/products" "{\"name\":\"Cart Widget $TS\",\"price\":2.00,\"description\":\"cart test product\",\"categoryId\":1,\"stock\":200}" "$TOKEN_ADMIN"
+expect_status "POST /products creates a cart test product with 200 in stock" 201
+CART_P1="$(pyq "$BODY" "d['id']")"
+req POST "/products" "{\"name\":\"Cart Gadget $TS\",\"price\":3.50,\"description\":\"cart test product\",\"categoryId\":2,\"stock\":200}" "$TOKEN_ADMIN"
+CART_P2="$(pyq "$BODY" "d['id']")"
+req POST "/products" "{\"name\":\"Sold Out $TS\",\"price\":1.00,\"description\":\"cart test product\",\"categoryId\":1}" "$TOKEN_ADMIN"
+SOLD_OUT_ID="$(pyq "$BODY" "d['id']")"
+
 req POST "/carts"
 expect_status "POST /carts is 201" 201
 CART_ID="$(pyq "$BODY" "d['id']")"
@@ -570,17 +706,21 @@ else
   bad "POST /carts sets Location header" "no matching Location in response headers"
 fi
 
-req POST "/carts/$CART_ID/items" "{\"productId\":$P1_ID}"
+req POST "/carts/$CART_ID/items" "{\"productId\":$CART_P1}"
 expect_status "POST /carts/{id}/items is 201" 201
 expect_eq "first add sets quantity 1" "$(pyq "$BODY" "d['quantity']")" "1"
 
-req POST "/carts/$CART_ID/items" "{\"productId\":$P1_ID}"
+req POST "/carts/$CART_ID/items" "{\"productId\":$CART_P1}"
 expect_status "POST /carts/{id}/items again is 201" 201
 expect_eq "re-adding the same product increments quantity to 2" "$(pyq "$BODY" "d['quantity']")" "2"
 
 req POST "/carts/$CART_ID/items" "{\"productId\":999999}"
 expect_status "POST /carts/{id}/items unknown product is 400" 400
 expect_body_contains "unknown product message" "Product not found."
+
+req POST "/carts/$CART_ID/items" "{\"productId\":$SOLD_OUT_ID}"
+expect_status "POST /carts/{id}/items for a product with no stock is 400" 400
+expect_body_contains "out of stock message" "Sold Out $TS is out of stock."
 
 req POST "/carts/$CART_ID/items" '{}'
 expect_status "POST /carts/{id}/items with an empty body is 400" 400
@@ -589,26 +729,30 @@ expect_body_contains "missing productId message" "Product ID is required."
 req POST "/carts/$CART_ID/items" '{"productId":null}'
 expect_status "POST /carts/{id}/items with productId null is 400" 400
 
-req POST "/carts/00000000-0000-0000-0000-000000000000/items" "{\"productId\":$P1_ID}"
+req POST "/carts/00000000-0000-0000-0000-000000000000/items" "{\"productId\":$CART_P1}"
 expect_status "POST /carts/{unknown-uuid}/items is 404" 404
 expect_body_contains "unknown cart message" "Cart not found."
 
-req PUT "/carts/$CART_ID/items/$P1_ID" '{"quantity":3}'
+req PUT "/carts/$CART_ID/items/$CART_P1" '{"quantity":3}'
 expect_status "PUT quantity=3 is 200" 200
 expect_eq "PUT quantity=3 applied" "$(pyq "$BODY" "d['quantity']")" "3"
 
-req PUT "/carts/$CART_ID/items/$P1_ID" '{"quantity":0}'
+req PUT "/carts/$CART_ID/items/$CART_P1" '{"quantity":0}'
 expect_status "PUT quantity=0 is 400 (@Min(1))" 400
 expect_body_contains "quantity=0 message" "Quantity must be greater than zero."
 
-req PUT "/carts/$CART_ID/items/$P1_ID" '{"quantity":101}'
+req PUT "/carts/$CART_ID/items/$CART_P1" '{"quantity":101}'
 expect_status "PUT quantity=101 is 200 (@Max is 1000)" 200
 
-req PUT "/carts/$CART_ID/items/$P1_ID" '{"quantity":1001}'
+req PUT "/carts/$CART_ID/items/$CART_P1" '{"quantity":201}'
+expect_status "PUT quantity=201 with 200 in stock is 400" 400
+expect_body_contains "not enough stock message" "Only 200 left in stock for Cart Widget $TS."
+
+req PUT "/carts/$CART_ID/items/$CART_P1" '{"quantity":1001}'
 expect_status "PUT quantity=1001 is 400 (@Max(1000))" 400
 expect_body_contains "@Max message says 1000" "Quantity must be less than or equal to 1000."
 
-req PUT "/carts/$CART_ID/items/$P1_ID" '{}'
+req PUT "/carts/$CART_ID/items/$CART_P1" '{}'
 expect_status "PUT with no quantity is 400 (@NotNull)" 400
 expect_body_contains "missing quantity message" "Quantity must be provided."
 
@@ -616,8 +760,8 @@ req PUT "/carts/$CART_ID/items/999999" '{"quantity":2}'
 expect_status "PUT for a product not in the cart is 400" 400
 expect_body_contains "product-not-in-cart message" "Product not found."
 
-req PUT "/carts/$CART_ID/items/$P1_ID" '{"quantity":3}'
-req POST "/carts/$CART_ID/items" "{\"productId\":$P2_ID}"
+req PUT "/carts/$CART_ID/items/$CART_P1" '{"quantity":3}'
+req POST "/carts/$CART_ID/items" "{\"productId\":$CART_P2}"
 req GET "/carts/$CART_ID"
 expect_status "GET /carts/{id} is 200" 200
 expect_eq "GET /carts/{id} has 2 line items" "$(pyq "$BODY" "len(d['items'])")" "2"
@@ -626,7 +770,7 @@ expect_eq "each item totalPrice == price * quantity" \
 expect_eq "cart totalPrice == sum of item totals" \
   "$(pyq "$BODY" "abs(float(d['totalPrice']) - sum(float(i['product']['price']) * i['quantity'] for i in d['items'])) < 1e-9")" "True"
 
-req DELETE "/carts/$CART_ID/items/$P2_ID"
+req DELETE "/carts/$CART_ID/items/$CART_P2"
 expect_status "DELETE /carts/{id}/items/{productId} is 204" 204
 req GET "/carts/$CART_ID"
 expect_eq "removed item is gone" "$(pyq "$BODY" "len(d['items'])")" "1"
@@ -666,7 +810,8 @@ ORDERS_BEFORE="$(pyq "$BODY" "len(d)")"
 
 req POST "/carts"
 CART_PAY="$(pyq "$BODY" "d['id']")"
-req POST "/carts/$CART_PAY/items" "{\"productId\":$P1_ID}"
+req POST "/carts/$CART_PAY/items" "{\"productId\":$CART_P1}"
+req PUT "/carts/$CART_PAY/items/$CART_P1" '{"quantity":3}'
 
 req POST "/checkout" "{\"cartId\":\"$CART_PAY\"}" "$TOKEN_B"
 expect_status "POST /checkout with items and no Stripe key is 500" 500
@@ -677,6 +822,22 @@ expect_eq "the failed checkout left no order behind" "$(pyq "$BODY" "len(d)")" "
 
 req GET "/carts/$CART_PAY"
 expect_eq "the failed checkout did not clear the cart" "$(pyq "$BODY" "len(d['items'])")" "1"
+expect_eq "the failed checkout left the stock at 200" "$(MYSQLQ "SELECT stock FROM products WHERE id = $CART_P1;")" "200"
+
+req PUT "/products/$CART_P1/stock" '{"stock":2}' "$TOKEN_ADMIN"
+req POST "/checkout" "{\"cartId\":\"$CART_PAY\"}" "$TOKEN_B"
+expect_status "POST /checkout for 3 units with 2 in stock is 400" 400
+expect_body_contains "checkout stock message" "Only 2 left in stock for Cart Widget $TS."
+req GET "/orders" "" "$TOKEN_B"
+expect_eq "the refused checkout left no order behind" "$(pyq "$BODY" "len(d)")" "$ORDERS_BEFORE"
+req GET "/carts/$CART_PAY"
+expect_eq "the refused checkout kept the cart" "$(pyq "$BODY" "len(d['items'])")" "1"
+expect_eq "the refused checkout left the stock at 2" "$(MYSQLQ "SELECT stock FROM products WHERE id = $CART_P1;")" "2"
+
+for id in "$CART_P1" "$CART_P2" "$SOLD_OUT_ID"; do
+  req DELETE "/products/$id" "" "$TOKEN_ADMIN"
+  expect_status "cleanup of cart test product $id" 204
+done
 
 section "Orders"
 req GET "/orders"
@@ -694,6 +855,7 @@ expect_status "GET /orders/{id} as the owner is 200" 200
 expect_eq "the order carries its line items" "$(pyq "$BODY" "len(d['items']) == 1")" "True"
 expect_eq "the line item carries its product" "$(pyq "$BODY" "d['items'][0]['product']['id']")" "$ORDERED_PRODUCT_ID"
 expect_eq "the order status is PENDING" "$(pyq "$BODY" "d['status']")" "PENDING"
+expect_eq "the order fulfillment status starts at PROCESSING" "$(pyq "$BODY" "d['fulfillmentStatus']")" "PROCESSING"
 
 req GET "/orders" "" "$TOKEN_A"
 expect_eq "GET /orders lists the owner's order" \
@@ -706,6 +868,50 @@ expect_body_contains "ownership error message" "You don't have access to this or
 req GET "/orders" "" "$TOKEN_B"
 expect_eq "GET /orders does not leak the other user's order" \
   "$(pyq "$BODY" "any(o['id'] == $ORDER_ID for o in d)")" "False"
+
+section "Admin - all orders and fulfillment"
+req GET "/admin/orders"
+expect_status "GET /admin/orders anonymous is 401" 401
+req GET "/admin/orders" "" "$TOKEN_A"
+expect_status "GET /admin/orders as a normal USER is 403" 403
+req GET "/admin/orders" "" "$TOKEN_ADMIN"
+expect_status "GET /admin/orders as ADMIN is 200" 200
+expect_eq "GET /admin/orders includes user A's order" "$(pyq "$BODY" "any(o['id'] == $ORDER_ID for o in d)")" "True"
+expect_eq "... with the customer who placed it" \
+  "$(pyq "$BODY" "next(o['customer']['email'] for o in d if o['id'] == $ORDER_ID)")" "$EMAIL_A"
+expect_eq "... and its items" "$(pyq "$BODY" "next(len(o['items']) for o in d if o['id'] == $ORDER_ID)")" "1"
+expect_eq "GET /admin/orders lists the newest orders first" \
+  "$(pyq "$BODY" "[o['createdAt'] for o in d] == sorted((o['createdAt'] for o in d), reverse=True)")" "True"
+
+FULFILLMENT_PATH="/admin/orders/$ORDER_ID/fulfillment"
+req PUT "$FULFILLMENT_PATH" '{"status":"SHIPPED"}' "$TOKEN_A"
+expect_status "PUT /admin/orders/{id}/fulfillment as a normal USER is 403" 403
+req PUT "$FULFILLMENT_PATH" '{"status":"SHIPPED"}' "$TOKEN_ADMIN"
+expect_status "PUT /admin/orders/{id}/fulfillment SHIPPED as ADMIN is 200" 200
+expect_eq "the order is now SHIPPED" "$(pyq "$BODY" "d['fulfillmentStatus']")" "SHIPPED"
+req GET "/orders/$ORDER_ID" "" "$TOKEN_A"
+expect_eq "the customer sees the order as SHIPPED" "$(pyq "$BODY" "d['fulfillmentStatus']")" "SHIPPED"
+
+req PUT "$FULFILLMENT_PATH" '{"status":"LOST"}' "$TOKEN_ADMIN"
+expect_status "an unknown fulfillment status is 400" 400
+req PUT "$FULFILLMENT_PATH" '{}' "$TOKEN_ADMIN"
+expect_status "a missing fulfillment status is 400" 400
+expect_body_contains "missing status message" "Status is required."
+req PUT "/admin/orders/999999/fulfillment" '{"status":"SHIPPED"}' "$TOKEN_ADMIN"
+expect_status "PUT /admin/orders/{id}/fulfillment unknown id is 404" 404
+
+STOCK_BEFORE="$(MYSQLQ "SELECT stock FROM products WHERE id = $ORDERED_PRODUCT_ID;")"
+req PUT "$FULFILLMENT_PATH" '{"status":"CANCELED"}' "$TOKEN_ADMIN"
+expect_status "cancelling the order as ADMIN is 200" 200
+expect_eq "cancelling put the 2 ordered units back in stock" \
+  "$(MYSQLQ "SELECT stock FROM products WHERE id = $ORDERED_PRODUCT_ID;")" "$((STOCK_BEFORE + 2))"
+req PUT "$FULFILLMENT_PATH" '{"status":"PROCESSING"}' "$TOKEN_ADMIN"
+expect_status "a cancelled order can't change again (409)" 409
+expect_body_contains "cancelled order message" "This order is canceled and can no longer change."
+req PUT "$FULFILLMENT_PATH" '{"status":"CANCELED"}' "$TOKEN_ADMIN"
+expect_status "cancelling the order twice is 409" 409
+expect_eq "... and doesn't put the units back twice" \
+  "$(MYSQLQ "SELECT stock FROM products WHERE id = $ORDERED_PRODUCT_ID;")" "$((STOCK_BEFORE + 2))"
 
 section "Stripe webhook"
 STATUS_BEFORE="$(MYSQLQ "SELECT status FROM orders WHERE id = $ORDER_ID;")"
@@ -937,8 +1143,8 @@ expect_status "POST /categories anonymous is 401 (GET and HEAD only)" 401
 req GET "/checkout-success?orderId=1"
 expect_status "GET /checkout-success?orderId=1 anonymous is 200" 200
 expect_header_contains "/checkout-success is text/html" "^content-type: *text/html"
-expect_body_contains "/checkout-success serves the storefront (h1)" "<h1>Tyrone Grocery Shop</h1>"
-expect_body_contains "/checkout-success loads app.js" '<script src="/app.js">'
+expect_body_contains "/checkout-success serves the storefront (title)" "<title>My orders | Tyrone Grocery Shop</title>"
+expect_body_contains "/checkout-success is the orders page" '<script type="module" src="/js/orders.js">'
 req GET "/checkout-success?orderId=abc"
 expect_status "GET /checkout-success?orderId=abc is 200 (orderId is validated client-side)" 200
 req GET "/checkout-success"
@@ -946,7 +1152,7 @@ expect_status "GET /checkout-success without a query is 200" 200
 req GET "/checkout-cancel"
 expect_status "GET /checkout-cancel anonymous is 200" 200
 expect_header_contains "/checkout-cancel is text/html" "^content-type: *text/html"
-expect_body_contains "/checkout-cancel loads app.js" '<script src="/app.js">'
+expect_body_contains "/checkout-cancel is the shop page" '<script type="module" src="/js/shop.js">'
 req POST "/checkout-success"
 expect_status "POST /checkout-success is 401 (GET only)" 401
 req POST "/checkout-cancel"

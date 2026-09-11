@@ -1,6 +1,7 @@
 # Files that `railway up` must not upload. The Dockerfile build only needs
-# .mvn/, mvnw, mvnw.cmd, pom.xml and src/ (plus Dockerfile and railway.json).
+# .mvn/, mvnw, mvnw.cmd, pom.xml, package.json, package-lock.json and src/ (plus Dockerfile and railway.json).
 target/
+node_modules/
 .git/
 .github/
 

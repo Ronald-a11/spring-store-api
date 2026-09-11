@@ -7,12 +7,25 @@ spring:
     refreshTokenExpiration: 604800 # 7d
   profiles:
     active: dev
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 3MB
+  # Browsers revalidate scripts and styles on every load, so a deploy never mixes old and new files.
+  web:
+    resources:
+      cache:
+        cachecontrol:
+          no-cache: true
 stripe:
   secretKey: ${STRIPE_SECRET_KEY:}
   webhookSecretKey: ${STRIPE_WEBHOOK_SECRET_KEY:}
-# Comma-separated e-mails that get the ADMIN role on registration or at startup.
+# emails: comma-separated e-mails that get the ADMIN role on registration or at startup.
+# default-email and default-password: admin account created at startup if it doesn't exist.
 admin:
   emails: ${ADMIN_EMAILS:}
+  default-email: ${DEFAULT_ADMIN_EMAIL:}
+  default-password: ${DEFAULT_ADMIN_PASSWORD:}
 springdoc:
   default-produces-media-type: application/json
   swagger-ui:

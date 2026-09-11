@@ -1,0 +1,16 @@
+{
+  "name": "tyrone-grocery-shop",
+  "private": true,
+  "description": "Stylesheet build for the Tyrone Grocery Shop pages",
+  "scripts": {
+    "build": "tailwindcss -i src/main/frontend/app.css -o target/classes/static/css/app.css --minify",
+    "dev": "tailwindcss -i src/main/frontend/app.css -o target/classes/static/css/app.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "tailwindcss": "^4.3.3"
+  },
+  "allowScripts": {
+    "@parcel/watcher": false
+  }
+}
