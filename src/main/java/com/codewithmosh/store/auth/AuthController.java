@@ -21,7 +21,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.annotation.*;
 
-// Beyond the course (API docs): tag, summaries, responses and parameter descriptions for Swagger UI.
 @Tag(name = "Auth")
 @AllArgsConstructor
 @RestController

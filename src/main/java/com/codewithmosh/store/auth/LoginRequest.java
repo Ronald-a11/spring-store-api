@@ -5,7 +5,6 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
-// Beyond the course (API docs): schema descriptions and examples for Swagger UI.
 @Schema(description = "Body of POST /auth/login.")
 @Data
 public class LoginRequest {

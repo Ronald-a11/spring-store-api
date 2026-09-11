@@ -4,7 +4,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
-// Beyond the course (API docs): schema descriptions and examples for Swagger UI.
 @Schema(description = "A user account.")
 @AllArgsConstructor
 @Getter

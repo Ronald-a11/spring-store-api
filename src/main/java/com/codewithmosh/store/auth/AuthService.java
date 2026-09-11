@@ -40,12 +40,10 @@ public class AuthService {
 
     public Jwt refreshAccessToken(String refreshToken) {
         var jwt = jwtService.parseToken(refreshToken);
-        // Fix beyond the course: an access token must not be accepted as a refresh token.
         if (jwt == null || jwt.isExpired() || !jwt.isRefreshToken()) {
             throw new BadCredentialsException("Invalid refresh token");
         }
 
-        // Fix beyond the course: a refresh token of a since-deleted user is invalid (401), not a NoSuchElementException (500).
         var user = userRepository.findById(jwt.getUserId())
                 .orElseThrow(() -> new BadCredentialsException("Invalid refresh token"));
         return jwtService.generateAccessToken(user);

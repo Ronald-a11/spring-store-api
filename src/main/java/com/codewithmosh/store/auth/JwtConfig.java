@@ -21,9 +21,6 @@ public class JwtConfig {
         return Keys.hmacShaKeyFor(secret.getBytes());
     }
 
-    // Fix beyond the course: a blank or too-short JWT_SECRET used to boot a "healthy" app whose
-    // every login failed with 401 (WeakKeyException only at the first /auth/login). Fail at
-    // startup instead so a deployment health check catches it. The value is never logged.
     @PostConstruct
     void validateSecret() {
         if (secret == null || secret.isBlank()) {

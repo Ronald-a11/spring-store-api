@@ -43,13 +43,11 @@ public class StripePaymentGateway implements PaymentGateway {
         }
         catch (StripeException ex) {
             System.out.println(ex.getMessage());
-            // Fix beyond the course: carry the Stripe reason so the controller can log it.
             throw new PaymentException(ex.getMessage());
         }
     }
 
-    // Fix beyond the course: WEBSITE_URL set with a trailing slash ("https://host/") would send the customer to
-    // "https://host//checkout-success", which Spring Security's firewall rejects with 400 - strip it before joining.
+    // Trim trailing slashes: Spring Security's firewall rejects a "//" in the return URL.
     private String returnUrl(String path) {
         return websiteUrl.replaceAll("/+$", "") + path;
     }
@@ -86,7 +84,6 @@ public class StripePaymentGateway implements PaymentGateway {
             () -> new PaymentException("Could not deserialize Stripe event. Check the SDK and API version.")
         );
         var paymentIntent = (PaymentIntent) stripeObject;
-        // Fix beyond the course: guard against a missing or non-numeric order_id in the payment intent metadata.
         var metadata = paymentIntent.getMetadata();
         var orderId = metadata == null ? null : metadata.get("order_id");
         if (orderId == null || orderId.isBlank()) {

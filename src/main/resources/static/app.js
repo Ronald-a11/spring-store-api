@@ -1,25 +1,7 @@
-/*
- * Tyrone Grocery Shop - a small storefront for the Tyrone Grocery Shop API.
- *
- * Vanilla ES2020, no framework, no build step. The page talks to the API on the same
- * origin (GET /products, /categories, /carts, /users, /auth/login, /checkout, /orders, admin writes).
- *
- * Ground rules:
- *  - Every piece of API data reaches the DOM through textContent (the el() helper below),
- *    never innerHTML, so product names, e-mails and error messages cannot inject markup.
- *  - The JWT payload is decoded ONLY to show the user's name and role; the server is the
- *    authority on what the token may do, and any 401 while logged in ends the session.
- *  - The cart id and the access token live in localStorage so a reload keeps them.
- */
+// Storefront for Tyrone Grocery Shop. Plain JavaScript, no build step.
 'use strict';
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-// GET /products only returns categoryId. The names come from GET /categories (see loadProducts); this map is the
-// fallback when that request fails, copied from the seed migration
-// src/main/resources/db/migration/V5__populate_database.sql (ids are assigned in insert order).
+// Fallback names for when GET /categories fails (same ids and names as the seed data).
 const CATEGORY_NAMES = {
   1: 'Produce',
   2: 'Dairy',
@@ -29,23 +11,11 @@ const CATEGORY_NAMES = {
   6: 'Beverages',
 };
 
-// Fix beyond the course: F2 one decorative emoji per category name (aria-hidden wherever it is rendered).
-const CATEGORY_ICONS = {
-  'Produce': '🥦',
-  'Dairy': '🥛',
-  'Bakery': '🍞',
-  'Meat & Seafood': '🥩',
-  'Pantry Staples': '🍚',
-  'Beverages': '🧃',
-};
-const DEFAULT_CATEGORY_ICON = '🛒';
-
 const STORAGE_TOKEN = 'store.token';
 const STORAGE_CART = 'store.cartId';
 const SESSION_EXPIRED = 'Session expired, please log in again.';
-// POST /checkout answers 500 {"error": "Error creating a checkout session"} for any Stripe failure (on this demo: no
-// key) and deletes the order first; the message below is shown for that body only, never for any other 500.
-const PAYMENT_UNAVAILABLE = 'The payment provider could not create a checkout session (Stripe is not configured on this demo) — the order was not created.';
+// Shown only for the 500 that POST /checkout returns when Stripe is not configured.
+const PAYMENT_UNAVAILABLE = 'Checkout is unavailable because Stripe is not configured on this demo. The order was not created.';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ORDER_ID_RE = /^\d{1,19}$/; // an order id from the checkout return URL: digits only (a Java long), nothing else is shown
 const WAKE_UP_AFTER_MS = 2000; // show "Waking up the server" if the first request takes longer than this
@@ -54,18 +24,10 @@ const QTY_MAX = 1000;          // UpdateCartItemRequest: @Min(1) @Max(1000)
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 const fmtMoney = (value) => money.format(Number(value) || 0);
-// Fix beyond the course: F1 the name comes from the /categories list when it loaded, else from the seed map above.
 function categoryName(id) {
   const known = state.categories && state.categories.find((c) => c.id === id);
   return known ? known.name : (CATEGORY_NAMES[id] || `Category ${id}`);
 }
-const categoryIcon = (id) => CATEGORY_ICONS[categoryName(id)] || DEFAULT_CATEGORY_ICON;
-/** Decorative icon node: hidden from assistive technology, the name next to it carries the meaning. */
-const iconNode = (icon) => el('span', { class: 'icon', 'aria-hidden': 'true' }, icon);
-
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
 
 const state = {
   products: [],
@@ -89,10 +51,6 @@ const storage = {
   set(key, value) { try { localStorage.setItem(key, value); } catch { /* not persisted */ } },
   remove(key) { try { localStorage.removeItem(key); } catch { /* nothing to remove */ } },
 };
-
-// ---------------------------------------------------------------------------
-// DOM helpers
-// ---------------------------------------------------------------------------
 
 const $ = (id) => document.getElementById(id);
 const field = (form, name) => form.elements.namedItem(name).value;
@@ -132,10 +90,6 @@ async function busy(button, work) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// API helper
-// ---------------------------------------------------------------------------
-
 class ApiError extends Error {
   constructor(status, data, sessionExpired = false) {
     super(describeError(status, data));
@@ -160,10 +114,8 @@ function describeError(status, data) {
 }
 
 /**
- * api(method, path, body, auth): JSON in, JSON out. Resolves with the parsed body (null for 204),
- * rejects with an ApiError for any non-2xx status and with a TypeError when the server is unreachable.
- * With auth=true the access token is sent; a 401 on such a call means the token is no longer
- * accepted (it expires after 15 minutes), so the session is ended right here.
+ * JSON request helper. Rejects with an ApiError for a non-2xx status and a TypeError when the server is unreachable.
+ * With auth=true the access token is sent, and a 401 ends the session.
  */
 async function api(method, path, body, auth = false) {
   const headers = { Accept: 'application/json' };
@@ -199,10 +151,6 @@ function showError(err) {
     toast(`Could not reach the server: ${err.message}`, 'error');
   }
 }
-
-// ---------------------------------------------------------------------------
-// Auth (register / login / logout)
-// ---------------------------------------------------------------------------
 
 /** Decodes the JWT payload without verifying it - for display only. */
 function decodeJwtPayload(token) {
@@ -293,10 +241,7 @@ function wireAuthDialog() {
   $('logout-btn').addEventListener('click', () => { logout(); toast('You are logged out.'); });
   dialog.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => dialog.close()));
   dialog.querySelectorAll('[data-switch]').forEach((b) => b.addEventListener('click', () => openAuthDialog(b.dataset.switch)));
-  // Fix beyond the course: F7 Escape closes the dialog explicitly as well (the native "cancel" already does in most
-  // browsers, but Chrome can swallow it for a dialog opened without user activation), and focus returns to the button
-  // that opened it (Cancel, Escape or a successful login all end here); after a login that button is hidden, so the
-  // "Log out" button in the user chip takes it.
+  // Handle Escape explicitly: Chrome can swallow the native cancel event for a dialog opened from script.
   dialog.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && dialog.open) { event.preventDefault(); dialog.close(); }
   });
@@ -351,10 +296,6 @@ function wireAuthDialog() {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Products (catalogue, search, category filter, admin add/delete)
-// ---------------------------------------------------------------------------
-
 function showProductsStatus(message, ...extra) {
   const status = $('products-status');
   status.replaceChildren(message, ...extra);
@@ -378,7 +319,6 @@ async function loadProducts() {
   showProductsStatus('Loading products…');
   // Free hosting puts an idle server to sleep; the first request can take a while.
   const wakeTimer = setTimeout(() => showProductsStatus('Waking up the server… this can take up to a minute on a sleeping demo host.'), WAKE_UP_AFTER_MS);
-  // Fix beyond the course: F1 the category list is fetched in parallel with the catalogue; it never fails the page.
   const categories = loadCategories();
   try {
     state.products = await api('GET', '/products');
@@ -388,7 +328,6 @@ async function loadProducts() {
     renderCategories();
     renderProducts();
   } catch (err) {
-    // Fix beyond the course: F6 an unreachable API (or a non-2xx) on the first load leaves a Retry button, not a blank page.
     const retry = el('button', { type: 'button', class: 'secondary small', onclick: () => loadProducts() }, 'Retry');
     const reason = err instanceof ApiError ? err.message : 'the server could not be reached.';
     showProductsStatus(`Could not load products: ${reason}`, retry);
@@ -397,10 +336,7 @@ async function loadProducts() {
   }
 }
 
-/**
- * The categories to offer: the /categories list when it loaded (every category, in id order), plus any id the
- * catalogue uses that the list does not know; without the list, the ids present in the catalogue named by the seed map.
- */
+/** Categories from GET /categories, plus any category id the products use that the list does not have. */
 function categoryList() {
   const list = state.categories ? state.categories.map((c) => ({ id: c.id, name: c.name })) : [];
   for (const id of new Set(state.products.map((p) => p.categoryId))) {
@@ -410,7 +346,6 @@ function categoryList() {
 }
 
 function renderCategories() {
-  // Fix beyond the course: F1/F2 chips come from GET /categories (label = name) with the category's icon.
   const categories = categoryList();
   const ids = categories.map((c) => c.id);
   // The selected category can disappear (an admin deleted its last product): fall back to "All".
@@ -421,11 +356,11 @@ function renderCategories() {
     'aria-pressed': String(state.categoryId === id),
     onclick: () => { state.categoryId = id; renderCategories(); renderProducts(); },
   }, ...label);
-  $('categories').replaceChildren(button(null, 'All'), ...categories.map((c) => button(c.id, iconNode(categoryIcon(c.id)), ' ', c.name)));
+  $('categories').replaceChildren(button(null, 'All'), ...categories.map((c) => button(c.id, c.name)));
 
   // The admin form's category select offers the same list; without /categories it also offers every seeded id.
   const selectIds = [...new Set([...ids, ...(state.categories ? [] : Object.keys(CATEGORY_NAMES).map(Number))])].sort((a, b) => a - b);
-  $('admin-category').replaceChildren(...selectIds.map((id) => el('option', { value: id }, `${id} – ${categoryName(id)}`)));
+  $('admin-category').replaceChildren(...selectIds.map((id) => el('option', { value: id }, `${id} - ${categoryName(id)}`)));
 }
 
 function visibleProducts() {
@@ -434,7 +369,6 @@ function visibleProducts() {
     && (!state.search || String(p.name).toLowerCase().includes(state.search)));
 }
 
-// Fix beyond the course: F7 "10 products" in the toolbar, "3 of 10 products" while a search or a category filters.
 function renderProductCount(visible, total) {
   const noun = (n) => `${n} ${n === 1 ? 'product' : 'products'}`;
   $('product-count').textContent = !state.productsLoaded ? '' : visible === total ? noun(total) : `${visible} of ${noun(total)}`;
@@ -445,7 +379,6 @@ function renderProducts() {
   const products = visibleProducts();
   renderProductCount(products.length, state.products.length);
   if (!products.length) {
-    // Fix beyond the course: F6 an empty catalogue says so; before the first answer the status line speaks instead.
     const message = state.products.length ? 'No products match.' : state.productsLoaded ? 'No products yet.' : '';
     grid.replaceChildren(el('p', { class: 'muted empty' }, message));
     return;
@@ -455,7 +388,7 @@ function renderProducts() {
     const addButton = el('button', { type: 'button' }, 'Add to cart');
     addButton.addEventListener('click', () => busy(addButton, () => addToCart(product).catch(showError)));
     const card = el('article', { class: 'card' },
-      el('span', { class: 'category' }, iconNode(categoryIcon(product.categoryId)), ' ', categoryName(product.categoryId)),
+      el('span', { class: 'category' }, categoryName(product.categoryId)),
       el('h3', {}, product.name),
       el('p', { class: 'desc' }, product.description),
       el('div', { class: 'card-footer' }, el('span', { class: 'price' }, fmtMoney(product.price)), addButton));
@@ -499,20 +432,13 @@ function wireAdminForm() {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Cart
-// ---------------------------------------------------------------------------
-
 function forgetCart() {
   state.cartId = null;
   state.cart = null;
   storage.remove(STORAGE_CART);
 }
 
-/**
- * True when the server says the stored cart id is unusable: an unknown cart (404) or a value that is
- * not a UUID at all (400 "Invalid request parameter."), which would otherwise fail on every call forever.
- */
+/** True when the stored cart id is unusable: an unknown cart (404) or a value that is not a UUID (400). */
 function isStaleCartError(err) {
   return err instanceof ApiError
     && (err.status === 404 || (err.status === 400 && Boolean(err.data) && err.data.error === 'Invalid request parameter.'));
@@ -578,8 +504,7 @@ async function setQuantity(productId, quantity) {
   await loadCart();
 }
 
-// Fix beyond the course: F5 the quantity is an editable number box. Typing waits QTY_DEBOUNCE_MS, leaving the box
-// (change) commits at once; the value is clamped to 1..QTY_MAX and sent with PUT /carts/{id}/items/{productId}.
+// The quantity box commits after a short pause in typing, or right away when it loses focus.
 const qtyTimers = new Map(); // productId -> pending timer, so fast typing ends in one PUT per line
 
 function clampQuantity(value) {
@@ -650,10 +575,7 @@ function renderCart() {
   if (focusedProductId !== null) {
     for (const input of list.querySelectorAll('input.qty-input')) {
       if (input.dataset.productId === focusedProductId) {
-        // Fix beyond the course: a value still being typed (a digit entered while the previous commit was in flight)
-        // is carried over to the replacement instead of being wiped by the server's value, the caret goes back to the
-        // end (a bare focus() may leave it at the start), and re-dispatching "input" re-arms the debounce on the new
-        // box against the new current quantity - which also cancels the stale timer of the detached box (one per product).
+        // Keep a value that is still being typed when the cart re-renders.
         const fromServer = input.value;
         input.focus({ preventScroll: true });
         input.value = '';
@@ -684,12 +606,9 @@ function renderCart() {
 async function checkout() {
   try {
     const result = await api('POST', '/checkout', { cartId: state.cartId }, true);
-    toast(`Order #${result.orderId} created — opening Stripe Checkout.`, 'success');
-    // Open Stripe straight away, while the click's user activation is still fresh: awaiting the refreshes
-    // first could push window.open() past the activation window and get it blocked as a pop-up.
-    // Not with the 'noopener' feature: window.open() then returns null by spec (Chrome, Firefox, Safari), which
-    // would make the pop-up-blocked fallback below fire every time (Stripe twice when pop-ups are allowed).
-    // Open plainly, then cut the opener link by hand so Stripe's tab cannot reach this window.
+    toast(`Order #${result.orderId} created. Opening Stripe Checkout...`, 'success');
+    // Open Stripe before awaiting anything else, or the pop-up blocker may no longer see the click.
+    // No 'noopener' here: window.open() would then return null, so the opener is cleared by hand instead.
     const opened = window.open(result.checkoutUrl, '_blank');
     if (!opened) { window.location.assign(result.checkoutUrl); return; } // pop-up blocked: go there directly
     opened.opener = null;
@@ -708,10 +627,6 @@ function wireCart() {
   const checkoutButton = $('checkout-btn');
   checkoutButton.addEventListener('click', () => busy(checkoutButton, checkout).then(renderCart));
 }
-
-// ---------------------------------------------------------------------------
-// Orders
-// ---------------------------------------------------------------------------
 
 async function loadOrders() {
   if (!state.user) return;
@@ -736,17 +651,14 @@ function renderOrders() {
     list.replaceChildren(el('p', { class: 'muted' }, 'No orders yet.'));
     return;
   }
-  // Fix beyond the course: F4 newest first (createdAt, then id), status badge, local date, items behind a <details>;
-  // the order named by the /checkout-success return URL is highlighted and opened.
+  // Newest first. The order from the checkout-success URL is highlighted and expanded.
   const orders = [...state.orders].sort((a, b) =>
     String(b.createdAt).localeCompare(String(a.createdAt)) || Number(b.id) - Number(a.id));
   list.replaceChildren(...orders.map((order) => {
     const status = String(order.status || '').toUpperCase();
     const items = order.items || [];
     const highlighted = state.highlightOrderId !== null && String(order.id) === state.highlightOrderId;
-    // Fix beyond the course: the webhook has landed - PAID ("confirmed") or, after payment_intent.payment_failed,
-    // FAILED/CANCELED; the amber "will show as PAID" banner must not stay above a red badge (a delayed-notification
-    // method such as ACH or SEPA is only submitted, not settled, when Stripe sends the customer back).
+    // Once the webhook has marked the order PAID or FAILED, update the checkout banner.
     if (highlighted && (status === 'PAID' || status === 'FAILED' || status === 'CANCELED')) confirmPaymentBanner(order.id, status);
     return el('article', { class: highlighted ? 'order highlight' : 'order' },
       el('div', { class: 'order-head' },
@@ -757,7 +669,7 @@ function renderOrders() {
       el('details', { class: 'order-items', open: highlighted },
         el('summary', {}, `${items.length} ${items.length === 1 ? 'item' : 'items'}`),
         el('ul', {}, ...items.map((item) =>
-          el('li', {}, `${item.quantity} × ${item.product ? item.product.name : 'product'} — ${fmtMoney(item.totalPrice)}`)))));
+          el('li', {}, `${item.quantity} × ${item.product ? item.product.name : 'product'}, ${fmtMoney(item.totalPrice)}`)))));
   }));
 }
 
@@ -766,10 +678,6 @@ function wireOrders() {
   button.addEventListener('click', () => busy(button, loadOrders));
 }
 
-// ---------------------------------------------------------------------------
-// Checkout return (Stripe sends the customer back to /checkout-success?orderId=<n> or /checkout-cancel)
-// ---------------------------------------------------------------------------
-
 function showBanner(message, kind) {
   const banner = $('checkout-banner');
   banner.className = `banner banner-${kind}`;
@@ -777,21 +685,16 @@ function showBanner(message, kind) {
   banner.hidden = false;
 }
 
-// Fix beyond the course: the return URL only proves that Stripe sent the customer back; the order becomes PAID when
-// Stripe's payment_intent.succeeded webhook lands (CheckoutService), which can be late or, without
-// STRIPE_WEBHOOK_SECRET_KEY, never - so the banner says "being confirmed" until GET /orders shows the order as PAID
-// and renderOrders() turns it into the confirmation here - or, when the payment_intent.payment_failed webhook ended
-// the order FAILED (CANCELED), into the failure notice. A dismissed banner stays dismissed.
+// Coming back from Stripe doesn't mean the payment went through; the order is PAID once the webhook arrives.
 function confirmPaymentBanner(orderId, status) {
   const paid = status === 'PAID';
   const message = paid
-    ? `Payment received — order #${orderId} is confirmed. Thank you!`
-    : `Payment for order #${orderId} did not go through — see My orders.`;
+    ? `Payment received. Order #${orderId} is confirmed, thank you!`
+    : `Payment for order #${orderId} did not go through. See My orders.`;
   if (!$('checkout-banner').hidden && $('banner-text').textContent !== message) showBanner(message, paid ? 'success' : 'error');
 }
 
-// Fix beyond the course: F3 both return URLs serve this page; the banner is filled in from the URL, which is then
-// rewritten back to "/" so a reload (or a bookmark) does not announce the payment twice.
+// Both return URLs serve this page. The URL is reset to / so a reload does not show the banner again.
 function wireCheckoutReturn() {
   $('banner-dismiss').addEventListener('click', () => { $('checkout-banner').hidden = true; });
   const path = location.pathname.replace(/\/+$/, ''); // tolerate a trailing slash
@@ -799,20 +702,19 @@ function wireCheckoutReturn() {
     const orderId = new URLSearchParams(location.search).get('orderId');
     if (orderId !== null && ORDER_ID_RE.test(orderId)) {
       state.highlightOrderId = orderId; // renderOrders() highlights it once GET /orders answers
-      showBanner(`Thanks — your payment is being confirmed; order #${orderId} will show as PAID in My orders.`, 'info');
+      showBanner(`Thanks! Your payment is being confirmed. Order #${orderId} will show as PAID in My orders.`, 'info');
     } else {
-      showBanner('Thanks — your payment is being confirmed; your order will show as PAID in My orders.', 'info');
+      showBanner('Thanks! Your payment is being confirmed. Your order will show as PAID in My orders.', 'info');
     }
   } else if (path === '/checkout-cancel') {
-    showBanner('Checkout cancelled — your cart is still here.', 'info');
+    showBanner('Checkout cancelled. Your cart is still here.', 'info');
   } else {
     return;
   }
   history.replaceState(null, '', '/');
 }
 
-// Fix beyond the course: F7 the header is sticky on wide screens (app.css); the sticky cart panel sits below it,
-// so the header's rendered height is published as --header-h (it changes when the toolbar wraps).
+// The cart panel sticks below the header, so the header height is published as --header-h.
 function wireStickyHeader() {
   const header = document.querySelector('.site-header');
   const update = () => document.documentElement.style.setProperty('--header-h', `${header.offsetHeight}px`);
@@ -820,10 +722,6 @@ function wireStickyHeader() {
   else window.addEventListener('resize', update);
   update();
 }
-
-// ---------------------------------------------------------------------------
-// Start-up
-// ---------------------------------------------------------------------------
 
 function init() {
   wireAuthDialog();

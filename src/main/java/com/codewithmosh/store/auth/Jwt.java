@@ -28,12 +28,10 @@ public class Jwt {
         return Role.valueOf(claims.get("role", String.class));
     }
 
-    // Fix beyond the course: a refresh token must not be usable as an access token (and vice versa).
     public boolean isRefreshToken() {
         return "refresh".equals(claims.get("type", String.class));
     }
 
-    // Fix beyond the course: only a token explicitly typed "access" authenticates a request (untyped tokens from older builds are rejected).
     public boolean isAccessToken() {
         return "access".equals(claims.get("type", String.class));
     }

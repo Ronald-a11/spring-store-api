@@ -1,16 +1,7 @@
 spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL}
-# Fix beyond the course: Railway terminates TLS at its edge and forwards plain HTTP plus X-Forwarded-Proto/Host.
-# Without this, Spring built absolute URLs from the proxied request: the OpenAPI document advertised an http://
-# server (so "Try it out" in the https Swagger UI was blocked as mixed content) and 201 Location headers were http://.
-# "framework" registers Spring's ForwardedHeaderFilter (highest precedence, ahead of Spring Security). The stock
-# filter trusts every forwarded header, and Railway's edge only overwrites X-Forwarded-Proto/Host/For - a client's
-# "Forwarded", X-Forwarded-Port, X-Forwarded-Prefix or X-Forwarded-Ssl reaches the app untouched - so
-# ForwardedHeadersConfig registers the filter in Boot's place with those four headers hidden from it.
+# The app runs behind a TLS-terminating proxy; "framework" also enables ForwardedHeadersConfig.
 server:
   forward-headers-strategy: framework
-# Fix beyond the course: WEBSITE_URL (Railway service variable) is the public origin Stripe sends the customer back to
-# after paying or cancelling (/checkout-success, /checkout-cancel - StripePaymentGateway); the course's placeholder
-# stays the default so a deployment without the variable behaves as before.
 websiteUrl: ${WEBSITE_URL:https://mystore.com}

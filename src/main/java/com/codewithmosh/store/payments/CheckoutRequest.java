@@ -6,7 +6,6 @@ import lombok.Data;
 
 import java.util.UUID;
 
-// Beyond the course (API docs): schema description and example for Swagger UI.
 @Schema(description = "Body of POST /checkout.")
 @Data
 public class CheckoutRequest {

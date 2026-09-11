@@ -24,8 +24,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-// Fix beyond the course: logger for the payment error log in handlePaymentException.
-// Beyond the course (API docs): tag, summaries, responses and parameter descriptions for Swagger UI.
 @Tag(name = "Checkout")
 @Slf4j
 @RequiredArgsConstructor
@@ -65,14 +63,12 @@ public class CheckoutController {
         @ApiResponse(responseCode = "500", description = "Signature verification failed or the event could not be parsed.",
                      content = @Content(schema = @Schema(implementation = ErrorDto.class), examples = @ExampleObject(value = "{\"error\": \"Error creating a checkout session\"}")))
     })
-    // Fix beyond the course: returns a ResponseEntity so the missing-header case below can answer 400.
     @PostMapping("/webhook")
     public ResponseEntity<?> handleWebhook(
         @Parameter(hidden = true) @RequestHeader Map<String, String> headers,
         @io.swagger.v3.oas.annotations.parameters.RequestBody(description = "The raw Stripe event JSON exactly as Stripe sends it; the signature is computed over these bytes.")
         @RequestBody String payload
     ) {
-        // Fix beyond the course: reject a missing signature header up front instead of letting stripe-java NPE.
         var signature = headers.get("stripe-signature");
         if (signature == null || signature.isBlank()) {
             return ResponseEntity.badRequest().body(new ErrorDto("Missing stripe-signature header."));
@@ -85,20 +81,17 @@ public class CheckoutController {
 
     @ExceptionHandler(PaymentException.class)
     public ResponseEntity<?> handlePaymentException(PaymentException ex) {
-        // Fix beyond the course: log the reason server side; the response body stays generic.
         log.error("Payment error: {}", ex.getMessage());
 
-        // Fix beyond the course: preset application/json so the error body is written even when Accept excludes JSON.
+        // Set the content type explicitly so the body is written even when Accept excludes JSON.
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(new ErrorDto("Error creating a checkout session"));
     }
 
-
     @ExceptionHandler({CartNotFoundException.class, CartEmptyException.class})
     public ResponseEntity<ErrorDto> handleException(Exception ex) {
-        // Fix beyond the course: preset application/json so the error body is written even when Accept excludes JSON (it used to end as a 500).
         return ResponseEntity.badRequest().contentType(MediaType.APPLICATION_JSON).body(new ErrorDto(ex.getMessage()));
     }
 }

@@ -21,7 +21,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.List;
 
-// Beyond the course (API docs): tag, summaries, responses and parameter descriptions for Swagger UI.
 @Tag(name = "Products")
 @AllArgsConstructor
 @RestController
@@ -83,7 +82,6 @@ public class ProductController {
     })
     @PostMapping
     public ResponseEntity<ProductDto> createProduct(
-        // Fix beyond the course: validate the request body (see constraints on ProductDto).
         @Valid @RequestBody ProductDto productDto,
         UriComponentsBuilder uriBuilder) {
         var category = categoryRepository.findById(productDto.getCategoryId()).orElse(null);
@@ -115,7 +113,6 @@ public class ProductController {
     @PutMapping("/{id}")
     public ResponseEntity<ProductDto> updateProduct(
         @Parameter(description = "Product ID.", example = "1") @PathVariable Long id,
-        // Fix beyond the course: validate the request body (see constraints on ProductDto).
         @Valid @RequestBody ProductDto productDto) {
         var category = categoryRepository.findById(productDto.getCategoryId()).orElse(null);
         if (category == null) {
@@ -146,7 +143,6 @@ public class ProductController {
         @ApiResponse(responseCode = "409", description = "The product is referenced by existing orders.",
                      content = @Content(schema = @Schema(implementation = ErrorDto.class), examples = @ExampleObject(value = "{\"error\": \"Product is referenced by existing orders and cannot be deleted.\"}")))
     })
-    // Fix beyond the course: ResponseEntity<?> (was <Void>) so the 409 below can carry an ErrorDto body.
     @DeleteMapping("/{id}")
     public ResponseEntity<?> deleteProduct(@Parameter(description = "Product ID.", example = "1") @PathVariable Long id) {
         var product = productRepository.findById(id).orElse(null);
@@ -154,7 +150,6 @@ public class ProductController {
             return ResponseEntity.notFound().build();
         }
 
-        // Fix beyond the course: order_items has a FK to products, so deleting an ordered product used to be a 500.
         try {
             productRepository.delete(product);
         } catch (DataIntegrityViolationException ex) {

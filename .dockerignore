@@ -4,7 +4,6 @@ target/
 .github/
 
 # Local tooling and IDE state
-.claude/
 .idea/
 .run/
 .vscode/

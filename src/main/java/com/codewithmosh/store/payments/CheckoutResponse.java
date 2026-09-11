@@ -3,7 +3,6 @@ package com.codewithmosh.store.payments;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-// Beyond the course (API docs): schema descriptions and examples for Swagger UI.
 @Schema(description = "Response of POST /checkout.")
 @Data
 public class CheckoutResponse {

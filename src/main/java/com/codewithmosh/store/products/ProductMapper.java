@@ -9,7 +9,6 @@ public interface ProductMapper {
     @Mapping(target = "categoryId", source = "category.id")
     ProductDto toDto(Product product);
 
-    // Fix beyond the course: an id in a POST body must not turn the insert into an update of an existing product.
     @Mapping(target = "id", ignore = true)
     Product toEntity(ProductDto productDto);
 

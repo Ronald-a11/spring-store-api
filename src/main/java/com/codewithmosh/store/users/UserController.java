@@ -23,7 +23,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.Map;
 
-// Beyond the course (API docs): tag, summaries, responses and parameter descriptions for Swagger UI.
 @Tag(name = "Users")
 @RestController
 @AllArgsConstructor
@@ -97,7 +96,6 @@ public class UserController {
     @PutMapping("/{id}")
     public UserDto updateUser(
         @Parameter(description = "User ID.", example = "1") @PathVariable(name = "id") Long id,
-        // Fix beyond the course: validate the body so a partial PUT can't blank out name/email.
         @Valid @RequestBody UpdateUserRequest request) {
         return userService.updateUser(id, request);
     }
@@ -132,14 +130,13 @@ public class UserController {
     @PostMapping("/{id}/change-password")
     public void changePassword(
             @Parameter(description = "User ID.", example = "1") @PathVariable Long id,
-            // Fix beyond the course: validate the body so blank/short passwords are rejected.
             @Valid @RequestBody ChangePasswordRequest request) {
         userService.changePassword(id, request);
     }
 
     @ExceptionHandler(DuplicateUserException.class)
     public ResponseEntity<Map<String, String>> handleDuplicateUser() {
-        // Fix beyond the course: preset application/json so the error body is written even when Accept excludes JSON (it used to end as a 500).
+        // Set the content type explicitly so the body is still written when Accept excludes JSON.
         return ResponseEntity.badRequest().contentType(MediaType.APPLICATION_JSON).body(
             Map.of("email", "Email is already registered.")
         );
@@ -155,10 +152,9 @@ public class UserController {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
     }
 
-    // Fix beyond the course: touching another user's account is 403 (AccessDeniedException above stays 401 for a wrong old password).
+    // Another user's account is 403; AccessDeniedException above is 401 for a wrong old password.
     @ExceptionHandler(UserAccessDeniedException.class)
     public ResponseEntity<ErrorDto> handleUserAccessDenied(Exception ex) {
-        // Fix beyond the course: preset application/json so the error body is written even when Accept excludes JSON (it used to end as a 500).
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
                 .contentType(MediaType.APPLICATION_JSON)

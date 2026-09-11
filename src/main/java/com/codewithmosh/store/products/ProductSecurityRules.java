@@ -12,9 +12,7 @@ public class ProductSecurityRules implements SecurityRules {
     @Override
     public void configure(AuthorizeHttpRequestsConfigurer<HttpSecurity>.AuthorizationManagerRequestMatcherRegistry registry) {
         registry.requestMatchers(HttpMethod.GET, "/products/**").permitAll()
-                // Fix beyond the course: HEAD is the read-only twin of GET and should be public too.
                 .requestMatchers(HttpMethod.HEAD, "/products/**").permitAll()
-                // Fix beyond the course: the category list (CategoryController) is public like the catalogue, GET and HEAD only.
                 .requestMatchers(HttpMethod.GET, "/categories").permitAll()
                 .requestMatchers(HttpMethod.HEAD, "/categories").permitAll()
                 .requestMatchers(HttpMethod.POST, "/products/**").hasRole(Role.ADMIN.name())

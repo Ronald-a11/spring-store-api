@@ -39,7 +39,6 @@ public class SecurityConfig {
 
     @Bean
     public AuthenticationProvider authenticationProvider() {
-        // Fix beyond the course: Spring Security 6.5 deprecates the no-arg DaoAuthenticationProvider + setUserDetailsService; same behaviour.
         var provider = new DaoAuthenticationProvider(userDetailsService);
         provider.setPasswordEncoder(passwordEncoder());
         return provider;
@@ -59,7 +58,7 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .authorizeHttpRequests(c -> {
                     featureSecurityRules.forEach(r -> r.configure(c));
-                    // Fix beyond the course: let error dispatches (/error) through, otherwise every unhandled error became a blank 401.
+                    // Permit error dispatches so an unhandled error is not turned into a blank 401.
                     c.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll();
                     c.anyRequest().authenticated();
                 }
@@ -69,10 +68,9 @@ public class SecurityConfig {
                 c.authenticationEntryPoint(
                     new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED));
                 c.accessDeniedHandler(((request, response, accessDeniedException) -> {
-                    // Fix beyond the course: send a JSON error body with the 403 instead of an empty response.
                     response.setStatus(HttpStatus.FORBIDDEN.value());
                     response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                    // Fix beyond the course: without this, getWriter() makes Tomcat label the body charset=ISO-8859-1.
+                    // Without this, getWriter() makes Tomcat add charset=ISO-8859-1 to the content type.
                     response.setCharacterEncoding("UTF-8");
                     response.getWriter().write("{\"error\": \"Access denied.\"}");
                 }));

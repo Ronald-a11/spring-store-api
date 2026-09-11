@@ -21,13 +21,12 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import java.util.HashMap;
 import java.util.Map;
 
-// Fix beyond the course: @Slf4j so the last-resort handler below can log the real exception.
+// Error responses set the content type explicitly so the body is written even when Accept excludes JSON.
 @Slf4j
 @ControllerAdvice
 public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorDto> handleUnreadableMessage() {
-        // Fix beyond the course: preset application/json so the error body is written even when Accept excludes JSON (it used to fall through to a Whitelabel page).
         return ResponseEntity.badRequest().contentType(MediaType.APPLICATION_JSON).body(
             new ErrorDto("Invalid request body")
         );
@@ -43,11 +42,9 @@ public class GlobalExceptionHandler {
             errors.put(error.getField(), error.getDefaultMessage());
         });
 
-        // Fix beyond the course: preset application/json so the field errors are written even when Accept excludes JSON.
         return ResponseEntity.badRequest().contentType(MediaType.APPLICATION_JSON).body(errors);
     }
 
-    // Fix beyond the course: the handlers below give framework errors a proper status (they used to end as a blank 401) and preset application/json so the body is written whatever Accept says.
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ErrorDto> handleTypeMismatch() {
         return ResponseEntity.badRequest().contentType(MediaType.APPLICATION_JSON).body(
@@ -81,7 +78,6 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorDto> handleDataIntegrityViolation() {
-        // Fix beyond the course: preset application/json so the error body is written even when Accept excludes JSON (it used to end as a 500).
         return ResponseEntity.status(HttpStatus.CONFLICT).contentType(MediaType.APPLICATION_JSON).body(
             new ErrorDto("Request conflicts with existing data.")
         );
@@ -89,7 +85,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorDto> handleUnexpectedError(Exception exception) throws Exception {
-        // Fix beyond the course: rethrow what Spring Security (401/403) and Spring MVC (e.g. 404) already handle with the right status.
+        // Spring Security and Spring MVC exceptions already carry the right status (401, 403, 404).
         if (exception instanceof AccessDeniedException
                 || exception instanceof AuthenticationException
                 || exception instanceof ErrorResponse) {

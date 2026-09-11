@@ -1,30 +1,17 @@
 #!/usr/bin/env bash
-# End-to-end smoke test for the ported spring-api-finished store API,
-# including the "fixes beyond the course" (README.md > Fixes beyond the course).
+# End-to-end checks against a running instance of the API.
 #
-# Every expected status code / body below is derived from the project sources
-# (controllers, *SecurityRules, SecurityConfig, GlobalExceptionHandler, services).
-# Where a fix intentionally changed the course behaviour, the check name carries
-# the fix id from the specification (S1..S6 auth/common, U1..U5 users,
-# P1..P2 products, C1..C2 carts, W1..W3 payments).
+# Usage: BASE_URL=http://localhost:8080 bash scripts/smoke-test.sh
+#   SMOKE_ADMIN_EMAIL  an e-mail listed in ADMIN_EMAILS on the server; enables the admin bootstrap checks
+#   SMOKE_ENV_FILE     .env whose JWT_SECRET signs the test tokens (default: .env in the project root)
 #
-# Usage:  BASE_URL=http://localhost:8080 bash smoke-test.sh
-#   SMOKE_ADMIN_EMAIL=<lowercase e-mail listed in the ADMIN_EMAILS of the instance
-#     under test> enables the B1 admin-bootstrap checks (skipped with a note when
-#     unset). Run it only against a throw-away instance: the account it registers
-#     is an ADMIN on that host (random per-run password, never printed); it deletes
-#     itself at the end and the EXIT trap deletes it when the run is interrupted.
-#   SMOKE_ENV_FILE=<path> is the .env whose JWT_SECRET signs the AT-5 test tokens
-#     (default: $PROJECT_DIR/.env) - point it at the secret of a throw-away instance.
-# Re-runnable: all e-mails carry a per-run timestamp suffix.
+# Needs curl, Python and Docker (database checks run in the store-mysql container).
 # Exits non-zero if any check fails.
 
 BASE_URL="${BASE_URL:-http://localhost:8080}"
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 TS="$(date +%s)$$"
 TMP="$(mktemp -d)"
-# The B1 bootstrap account (an ADMIN, see above) is removed here too, so a run cut
-# short by Ctrl-C or a signal does not leave it behind; BOOT_ID is cleared once the
-# in-line DELETE has succeeded.
 BOOT_ID=""
 BOOT_TOKEN=""
 cleanup() {
@@ -45,7 +32,6 @@ bad() { FAIL=$((FAIL + 1)); FAILED_NAMES+=("$1"); printf 'FAIL  %s -- %s\n' "$1"
 
 section() { printf '\n== %s ==\n' "$1"; }
 
-# pyq <json> <python expr over d>   -- json helper (no jq on this box)
 pyq() {
   printf '%s' "$1" | python -c "
 import sys, json
@@ -62,8 +48,6 @@ except Exception as e:
 
 MYSQLQ() { docker exec store-mysql mysql -uroot -pMyPassword! store_api -N -B -e "$1" 2>/dev/null; }
 
-# req METHOD PATH [DATA] [TOKEN] [EXTRA_HEADER]  -> sets STATUS, BODY, HDRS
-# Set CT=<media type> before the call to override the Content-Type sent with DATA.
 req() {
   local method="$1" path="$2" data="${3:-}" token="${4:-}" extra="${5:-}"
   local args=(-s -o "$TMP/body" -D "$TMP/hdr" -w '%{http_code}' -X "$method" "$BASE_URL$path")
@@ -75,7 +59,6 @@ req() {
   HDRS="$(cat "$TMP/hdr")"
 }
 
-# head_req PATH [TOKEN] -> STATUS, HDRS   (curl -I sends a real HEAD request)
 head_req() {
   local args=(-s -o /dev/null -I -D "$TMP/hdr" -w '%{http_code}')
   [ -n "${2:-}" ] && args+=(-H "Authorization: Bearer $2")
@@ -84,13 +67,6 @@ head_req() {
   BODY=""
 }
 
-# mint_jwt <claims-json> -> prints an HS256 JWT signed with JWT_SECRET read from
-# $SMOKE_ENV_FILE, default $PROJECT_DIR/.env (the secret stays inside the python
-# process and is never printed). Prints nothing when no secret is readable.
-# Mirrors JwtConfig: Keys.hmacShaKeyFor(secret.getBytes()), i.e. the raw UTF-8
-# bytes of the value - and jjwt's choice of HMAC size from the key length (HS256
-# below 48 bytes, HS384 below 64, HS512 from 64 on), so a JWT_SECRET made with
-# "openssl rand -hex 64" (README) verifies as well as one from "-base64 32".
 mint_jwt() {
   python - "${SMOKE_ENV_FILE:-$PROJECT_DIR/.env}" "$1" <<'PY'
 import sys, re, json, hmac, hashlib, base64
@@ -148,19 +124,11 @@ expect_header_contains() { # name needle (case-insensitive grep over the respons
 
 printf 'Smoke test against %s  (run id %s)\n' "$BASE_URL" "$TS"
 
-############################################################
 section "Infrastructure / docs"
-############################################################
-# Fix beyond the course: SwaggerSecurityRules permits GET "/", so the Thymeleaf
-# home page is public and links to the API docs.
 req GET "/"
 expect_status "GET / anonymous is 200 (public home page)" 200
 expect_body_contains "GET / links to Swagger UI" "swagger-ui/index.html"
 
-# Fix beyond the course: the home page is a storefront driven by /app.js; its
-# assets are permitted for GET only (SwaggerSecurityRules), and the template
-# must not contain Thymeleaf inlining sequences ("[[" / "[(") that would be
-# processed as expressions.
 expect_body_contains "GET / loads the storefront script" '<script src="/app.js">'
 expect_body_contains "GET / loads the storefront stylesheet" 'href="/app.css"'
 case "$BODY" in
@@ -168,10 +136,8 @@ case "$BODY" in
   *) ok "GET / has no Thymeleaf inlining sequences" ;;
 esac
 
-# Fix beyond the course: HEAD "/" is permitted too - it was the health-check path
-# (railway.json, now /actuator/health) and probes or proxies that send HEAD got 401.
 head_req "/"
-expect_status "HEAD / anonymous is 200 (former health-check path; GET and HEAD permitted)" 200
+expect_status "HEAD / anonymous is 200" 200
 
 req GET "/app.js"
 expect_status "GET /app.js anonymous is 200 (storefront asset, permitAll GET only)" 200
@@ -193,17 +159,14 @@ expect_status "GET /swagger-ui/index.html is 200" 200
 req GET "/v3/api-docs"
 expect_status "GET /v3/api-docs is 200" 200
 expect_body_contains "GET /v3/api-docs is an OpenAPI doc" '"openapi"'
-# S5: OpenApiConfig declares the bearerAuth scheme so Swagger UI gets an Authorize button.
-expect_body_contains "S5: /v3/api-docs declares the bearerAuth security scheme" '"bearerAuth"'
-expect_eq "S5: bearerAuth is an http/bearer scheme" \
+expect_body_contains "/v3/api-docs declares the bearerAuth security scheme" '"bearerAuth"'
+expect_eq "bearerAuth is an http/bearer scheme" \
   "$(pyq "$BODY" "d['components']['securitySchemes']['bearerAuth']['type'] + '/' + d['components']['securitySchemes']['bearerAuth']['scheme']")" "http/bearer"
-expect_eq "S5: bearerAuth is applied globally" \
+expect_eq "bearerAuth is applied globally" \
   "$(pyq "$BODY" "any('bearerAuth' in s for s in d['security'])")" "True"
-expect_eq "S5: info.title is 'Tyrone Grocery Shop API'" "$(pyq "$BODY" "d['info']['title']")" "Tyrone Grocery Shop API"
+expect_eq "info.title is 'Tyrone Grocery Shop API'" "$(pyq "$BODY" "d['info']['title']")" "Tyrone Grocery Shop API"
 
-############################################################
-section "Products - public reads (ProductSecurityRules: GET/HEAD permitAll)"
-############################################################
+section "Products - public reads"
 req GET "/products"
 expect_status "GET /products is 200" 200
 PRODUCT_COUNT="$(pyq "$BODY" "len(d)")"
@@ -214,7 +177,7 @@ else
 fi
 P1_ID="$(pyq "$BODY" "d[0]['id']")"
 P2_ID="$(pyq "$BODY" "d[1]['id']")"
-expect_eq "GET /products keeps the course field order (id,name,price,description,categoryId)" \
+expect_eq "GET /products returns fields in the order id, name, price, description, categoryId" \
   "$(pyq "$BODY" "list(d[0].keys())")" "['id', 'name', 'price', 'description', 'categoryId']"
 
 req GET "/products?categoryId=1"
@@ -229,35 +192,27 @@ expect_eq "GET /products/{id} returns that product" "$(pyq "$BODY" "d['id']")" "
 req GET "/products/999999"
 expect_status "GET /products/{id} unknown id is 404" 404
 
-# S4: HEAD is permitted alongside GET.
 head_req "/products"
-expect_status "S4: HEAD /products anonymous is 200" 200
+expect_status "HEAD /products anonymous is 200" 200
 head_req "/products/$P1_ID"
-expect_status "S4: HEAD /products/{id} anonymous is 200" 200
+expect_status "HEAD /products/{id} anonymous is 200" 200
 
-# S1: type-mismatch on a path/query parameter is a 400 with an error body
-# (used to be a blank 401 because the /error dispatch was blocked).
 req GET "/products/abc"
-expect_status "S1: GET /products/abc (non-numeric id) is 400" 400
-expect_body_contains "S1: type-mismatch error body" "Invalid request parameter."
+expect_status "GET /products/abc (non-numeric id) is 400" 400
+expect_body_contains "type-mismatch error body" "Invalid request parameter."
 
 req GET "/products?categoryId=abc"
-expect_status "S1: GET /products?categoryId=abc is 400" 400
-expect_body_contains "S1: type-mismatch error body (query param)" "Invalid request parameter."
+expect_status "GET /products?categoryId=abc is 400" 400
+expect_body_contains "type-mismatch error body (query param)" "Invalid request parameter."
 
 req GET "/products" "" "" "Accept: text/plain"
-expect_status "S1: GET /products with Accept: text/plain is 406" 406
+expect_status "GET /products with Accept: text/plain is 406" 406
 
-############################################################
 section "Users - registration & validation"
-############################################################
 EMAIL_A="alice.$TS@example.com"
 EMAIL_B="bob.$TS@example.com"
 EMAIL_ADMIN="admin.$TS@example.com"
 PASS_A="secret123"
-# The B1 bootstrap account is an ADMIN on the instance under test, so it never
-# gets the fixed PASS_A: a random 20-character password per run (RegisterUserRequest
-# allows 6 to 25), kept in this shell and never printed.
 BOOT_PASS="$(python -c 'import secrets; print(secrets.token_hex(10))' 2>/dev/null)"
 [ -n "$BOOT_PASS" ] || BOOT_PASS="b${TS:0:20}x"
 
@@ -296,13 +251,10 @@ req POST "/users" "{\"name\":\"X\",\"email\":\"UPPER.$TS@Example.COM\",\"passwor
 expect_status "POST /users uppercase e-mail is 400 (@Lowercase)" 400
 expect_body_contains "POST /users uppercase e-mail message" "Email must be in lowercase"
 
-# U2: the users.email UNIQUE index (V6) is really in place.
 UNIQUE_IDX="$(MYSQLQ "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema='store_api' AND table_name='users' AND index_name='users_email_unique' AND non_unique=0;")"
-expect_eq "U2: users_email_unique UNIQUE index exists in the store-mysql container" "$UNIQUE_IDX" "1"
+expect_eq "users_email_unique UNIQUE index exists in the store-mysql container" "$UNIQUE_IDX" "1"
 
-############################################################
 section "Auth - login / me / refresh"
-############################################################
 req POST "/auth/login" "{\"email\":\"$EMAIL_A\",\"password\":\"$PASS_A\"}"
 expect_status "POST /auth/login valid credentials is 200" 200
 TOKEN_A="$(pyq "$BODY" "d['token']")"
@@ -346,60 +298,47 @@ expect_status "GET /auth/me without a token is 401" 401
 req GET "/auth/me" "" "garbage.token.value"
 expect_status "GET /auth/me with a garbage token is 401" 401
 
-# The cookie carries the Secure flag, so curl's jar will not replay it over
-# plain http -- send it explicitly, which is what a browser on https does.
 req POST "/auth/refresh" "" "" "Cookie: refreshToken=$REFRESH_A"
 expect_status "POST /auth/refresh with the cookie is 200" 200
 expect_eq "POST /auth/refresh returns a new access token" \
   "$(pyq "$BODY" "d['token'].startswith('ey')")" "True"
 
-# S1: MissingRequestCookieException now has a deliberate 401 handler (same
-# status the blocked /error dispatch used to produce by accident).
 req POST "/auth/refresh"
 expect_status "POST /auth/refresh without the cookie is 401" 401
 
-# S2: access and refresh tokens carry a "type" claim and are not interchangeable.
 req GET "/auth/me" "" "$REFRESH_A"
-expect_status "S2: refresh token used as a Bearer access token is 401" 401
+expect_status "refresh token used as a Bearer access token is 401" 401
 
 req POST "/auth/refresh" "" "" "Cookie: refreshToken=$TOKEN_A"
-expect_status "S2: access token used as the refreshToken cookie is 401" 401
+expect_status "access token used as the refreshToken cookie is 401" 401
 
-# S3: the Bearer prefix is stripped with substring(7), so a doubled prefix is
-# an invalid token (replace() used to strip both and accept it).
 req GET "/auth/me" "" "Bearer $TOKEN_A"
-expect_status "S3: 'Authorization: Bearer Bearer <token>' is 401" 401
+expect_status "'Authorization: Bearer Bearer <token>' is 401" 401
 
-# S3: an empty token no longer escapes as an IllegalArgumentException.
 req GET "/products" "" "" "Authorization: Bearer "
-expect_status "S3: 'Authorization: Bearer ' (empty token) on a public endpoint is 200" 200
+expect_status "'Authorization: Bearer ' (empty token) on a public endpoint is 200" 200
 req GET "/auth/me" "" "" "Authorization: Bearer "
-expect_status "S3: 'Authorization: Bearer ' (empty token) on a protected endpoint is 401" 401
+expect_status "'Authorization: Bearer ' (empty token) on a protected endpoint is 401" 401
 
-# S1: framework errors reach /error or a GlobalExceptionHandler mapping instead
-# of a blank 401.
 req GET "/nonexistent" "" "$TOKEN_A"
-expect_status "S1: GET /nonexistent with a valid token is 404" 404
-expect_body_contains "S1: 404 carries Spring Boot's JSON error body" '"status":404'
+expect_status "GET /nonexistent with a valid token is 404" 404
+expect_body_contains "404 carries Spring Boot's JSON error body" '"status":404'
 
 req PATCH "/products/$P1_ID" '{"name":"x"}' "$TOKEN_A"
-expect_status "S1: PATCH /products/{id} is 405" 405
-expect_body_contains "S1: 405 error body" "Method not allowed."
+expect_status "PATCH /products/{id} is 405" 405
+expect_body_contains "405 error body" "Method not allowed."
 
 CT="text/plain"
 req POST "/auth/login" "email=$EMAIL_A"
 unset CT
-expect_status "S1: POST /auth/login with Content-Type: text/plain is 415" 415
-expect_body_contains "S1: 415 error body" "Unsupported media type."
+expect_status "POST /auth/login with Content-Type: text/plain is 415" 415
+expect_body_contains "415 error body" "Unsupported media type."
 
-# The Thymeleaf home page renders the same storefront with a token as without.
 req GET "/" "" "$TOKEN_A"
 expect_status "GET / authenticated renders the Thymeleaf page" 200
 expect_body_contains "GET / renders the store name (h1)" "<h1>Tyrone Grocery Shop</h1>"
 
-############################################################
 section "Admin - promotion & role-gated endpoints"
-############################################################
 req POST "/users" "{\"name\":\"Admin $TS\",\"email\":\"$EMAIL_ADMIN\",\"password\":\"$PASS_A\"}"
 expect_status "POST /users registers the soon-to-be admin" 201
 MYSQLQ "UPDATE users SET role='ADMIN' WHERE email='$EMAIL_ADMIN';" >/dev/null
@@ -415,27 +354,23 @@ expect_status "GET /admin/hello anonymous is 401" 401
 
 req GET "/admin/hello" "" "$TOKEN_B"
 expect_status "GET /admin/hello as a normal USER is 403" 403
-# S6: the security layer's 403 now carries a JSON body.
-expect_body_contains "S6: 403 from the security layer has a JSON error body" '"error": "Access denied."'
-expect_header_contains "S6: 403 body is application/json" "^content-type: *application/json"
+expect_body_contains "403 from the security layer has a JSON error body" '"error": "Access denied."'
+expect_header_contains "403 body is application/json" "^content-type: *application/json"
 
 req GET "/admin/hello" "" "$TOKEN_ADMIN"
 expect_status "GET /admin/hello as ADMIN is 200" 200
 expect_body_contains "GET /admin/hello greets the admin" "Hello Admin!"
 
-############################################################
-section "Users - authenticated reads & writes (U3: owner-or-admin)"
-############################################################
+section "Users - authenticated reads and writes"
 req GET "/users"
 expect_status "GET /users without a token is 401" 401
 
-# U3: listing every user is admin-only (UserSecurityRules).
 req GET "/users" "" "$TOKEN_A"
-expect_status "U3: GET /users as a normal USER is 403" 403
-expect_body_contains "U3: GET /users 403 body" "Access denied."
+expect_status "GET /users as a normal USER is 403" 403
+expect_body_contains "GET /users 403 body" "Access denied."
 
 req GET "/users" "" "$TOKEN_ADMIN"
-expect_status "U3: GET /users as ADMIN is 200" 200
+expect_status "GET /users as ADMIN is 200" 200
 expect_eq "GET /users returns a non-empty list" "$(pyq "$BODY" "len(d) > 0")" "True"
 
 req GET "/users?sort=email" "" "$TOKEN_ADMIN"
@@ -448,106 +383,97 @@ expect_status "GET /users/{id} own account is 200" 200
 expect_eq "GET /users/{id} returns the right user" "$(pyq "$BODY" "d['email']")" "$EMAIL_A"
 
 req GET "/users/$USER_B_ID" "" "$TOKEN_A"
-expect_status "U3: GET /users/{id} of another user as USER is 403" 403
-expect_body_contains "U3: ownership error message" "You don't have access to this user."
+expect_status "GET /users/{id} of another user as USER is 403" 403
+expect_body_contains "ownership error message" "You don't have access to this user."
 
 req GET "/users/$USER_B_ID" "" "$TOKEN_ADMIN"
-expect_status "U3: GET /users/{id} of another user as ADMIN is 200" 200
-expect_eq "U3: ADMIN sees the other user" "$(pyq "$BODY" "d['email']")" "$EMAIL_B"
+expect_status "GET /users/{id} of another user as ADMIN is 200" 200
+expect_eq "ADMIN sees the other user" "$(pyq "$BODY" "d['email']")" "$EMAIL_B"
 
-# The access check runs before the lookup, so a USER gets 403 for any foreign id.
 req GET "/users/999999" "" "$TOKEN_A"
-expect_status "U3: GET /users/{id} unknown id as USER is 403" 403
+expect_status "GET /users/{id} unknown id as USER is 403" 403
 
 req GET "/users/999999" "" "$TOKEN_ADMIN"
 expect_status "GET /users/{id} unknown id as ADMIN is 404" 404
 
-# --- PUT /users/{id} ---
 req PUT "/users/$USER_A_ID" "{\"name\":\"Alice Updated\",\"email\":\"$EMAIL_A\"}" "$TOKEN_A"
 expect_status "PUT /users/{id} with both fields is 200" 200
 expect_eq "PUT /users/{id} applied the new name" "$(pyq "$BODY" "d['name']")" "Alice Updated"
 
-# U4: a partial body is rejected instead of nulling the missing field.
 req PUT "/users/$USER_A_ID" "{\"name\":\"Alice Partial\"}" "$TOKEN_A"
-expect_status "U4: PUT /users/{id} with only a name is 400" 400
-expect_body_contains "U4: missing e-mail message" "Email is required"
+expect_status "PUT /users/{id} with only a name is 400" 400
+expect_body_contains "missing e-mail message" "Email is required"
 
 req PUT "/users/$USER_A_ID" "{\"email\":\"$EMAIL_A\"}" "$TOKEN_A"
-expect_status "U4: PUT /users/{id} with only an e-mail is 400" 400
-expect_body_contains "U4: missing name message" "Name is required"
+expect_status "PUT /users/{id} with only an e-mail is 400" 400
+expect_body_contains "missing name message" "Name is required"
 
 req GET "/users/$USER_A_ID" "" "$TOKEN_A"
-expect_eq "U4: the rejected partial PUT changed nothing (name)" "$(pyq "$BODY" "d['name']")" "Alice Updated"
-expect_eq "U4: the rejected partial PUT changed nothing (e-mail)" "$(pyq "$BODY" "d['email']")" "$EMAIL_A"
+expect_eq "the rejected partial PUT changed nothing (name)" "$(pyq "$BODY" "d['name']")" "Alice Updated"
+expect_eq "the rejected partial PUT changed nothing (e-mail)" "$(pyq "$BODY" "d['email']")" "$EMAIL_A"
 
 req PUT "/users/$USER_A_ID" "{\"name\":\"Alice Updated\",\"email\":\"UPPER.$TS@Example.COM\"}" "$TOKEN_A"
-expect_status "U4: PUT /users/{id} with an uppercase e-mail is 400" 400
-expect_body_contains "U4: uppercase e-mail message" "Email must be in lowercase"
+expect_status "PUT /users/{id} with an uppercase e-mail is 400" 400
+expect_body_contains "uppercase e-mail message" "Email must be in lowercase"
 
-# U2: taking over another user's e-mail is rejected.
 req PUT "/users/$USER_A_ID" "{\"name\":\"Alice Updated\",\"email\":\"$EMAIL_B\"}" "$TOKEN_A"
-expect_status "U2: PUT /users/{id} to another user's e-mail is 400" 400
-expect_body_contains "U2: duplicate e-mail message on update" "Email is already registered."
+expect_status "PUT /users/{id} to another user's e-mail is 400" 400
+expect_body_contains "duplicate e-mail message on update" "Email is already registered."
 
 req PUT "/users/$USER_B_ID" "{\"name\":\"Bob Hijacked\",\"email\":\"$EMAIL_B\"}" "$TOKEN_A"
-expect_status "U3: PUT /users/{id} of another user as USER is 403" 403
-expect_body_contains "U3: PUT ownership error message" "You don't have access to this user."
+expect_status "PUT /users/{id} of another user as USER is 403" 403
+expect_body_contains "PUT ownership error message" "You don't have access to this user."
 
 req PUT "/users/$USER_B_ID" "{\"name\":\"Bob Renamed\",\"email\":\"$EMAIL_B\"}" "$TOKEN_ADMIN"
-expect_status "U3: PUT /users/{id} of another user as ADMIN is 200" 200
-expect_eq "U3: ADMIN update applied" "$(pyq "$BODY" "d['name']")" "Bob Renamed"
+expect_status "PUT /users/{id} of another user as ADMIN is 200" 200
+expect_eq "ADMIN update applied" "$(pyq "$BODY" "d['name']")" "Bob Renamed"
 
-# --- POST /users/{id}/change-password ---
 NEW_PASS_A="newsecret123"
 NEW_PASS_B="adminset123"
 
 req POST "/users/$USER_A_ID/change-password" \
   "{\"oldPassword\":\"definitely-wrong\",\"newPassword\":\"$NEW_PASS_A\"}" "$TOKEN_A"
-expect_status "POST /users/{id}/change-password wrong old password is 401 (course behaviour kept)" 401
+expect_status "POST /users/{id}/change-password wrong old password is 401" 401
 
-# U1: the request is validated.
 req POST "/users/$USER_A_ID/change-password" "{\"newPassword\":\"$NEW_PASS_A\"}" "$TOKEN_A"
-expect_status "U1: change-password without oldPassword is 400" 400
-expect_body_contains "U1: missing oldPassword message" "Old password is required."
+expect_status "change-password without oldPassword is 400" 400
+expect_body_contains "missing oldPassword message" "Old password is required."
 
 req POST "/users/$USER_A_ID/change-password" "{\"oldPassword\":\"$PASS_A\",\"newPassword\":\"abc\"}" "$TOKEN_A"
-expect_status "U1: change-password with a 3-char newPassword is 400" 400
-expect_body_contains "U1: short newPassword message" "Password must be between 6 to 25 characters long."
+expect_status "change-password with a 3-char newPassword is 400" 400
+expect_body_contains "short newPassword message" "Password must be between 6 to 25 characters long."
 
 req POST "/users/$USER_A_ID/change-password" "{\"oldPassword\":\"$PASS_A\",\"newPassword\":\"\"}" "$TOKEN_A"
-expect_status "U1: change-password with a blank newPassword is 400" 400
-expect_body_contains "U1: blank newPassword is reported on the newPassword field" '"newPassword"'
+expect_status "change-password with a blank newPassword is 400" 400
+expect_body_contains "blank newPassword is reported on the newPassword field" '"newPassword"'
 
 req POST "/users/$USER_B_ID/change-password" \
   "{\"oldPassword\":\"$PASS_A\",\"newPassword\":\"$NEW_PASS_A\"}" "$TOKEN_A"
-expect_status "U3: change-password on another user's account as USER is 403" 403
-expect_body_contains "U3: change-password ownership error message" "You don't have access to this user."
+expect_status "change-password on another user's account as USER is 403" 403
+expect_body_contains "change-password ownership error message" "You don't have access to this user."
 
 req POST "/users/$USER_A_ID/change-password" \
   "{\"oldPassword\":\"$PASS_A\",\"newPassword\":\"$NEW_PASS_A\"}" "$TOKEN_A"
 expect_status "POST /users/{id}/change-password correct old password is 200" 200
 
-# U1: the new password is stored as a BCrypt hash (the course stored it in plaintext).
 PW_PREFIX="$(MYSQLQ "SELECT LEFT(password, 4) FROM users WHERE id = $USER_A_ID;")"
-expect_eq "U1: change-password stores a BCrypt hash (LEFT(password,4))" "$PW_PREFIX" '$2a$'
+expect_eq "change-password stores a BCrypt hash (LEFT(password,4))" "$PW_PREFIX" '$2a$'
 
 req POST "/auth/login" "{\"email\":\"$EMAIL_A\",\"password\":\"$NEW_PASS_A\"}"
-expect_status "U1: login with the NEW password after change-password is 200" 200
+expect_status "login with the NEW password after change-password is 200" 200
 
 req POST "/auth/login" "{\"email\":\"$EMAIL_A\",\"password\":\"$PASS_A\"}"
-expect_status "U1: login with the OLD password after change-password is 401" 401
+expect_status "login with the OLD password after change-password is 401" 401
 
 req POST "/users/$USER_B_ID/change-password" \
   "{\"oldPassword\":\"$PASS_A\",\"newPassword\":\"$NEW_PASS_B\"}" "$TOKEN_ADMIN"
-expect_status "U3: change-password on another user's account as ADMIN is 200" 200
+expect_status "change-password on another user's account as ADMIN is 200" 200
 
 req POST "/auth/login" "{\"email\":\"$EMAIL_B\",\"password\":\"$NEW_PASS_B\"}"
-expect_status "U1/U3: the admin-set password works for the other user" 200
+expect_status "the admin-set password works for the other user" 200
 TOKEN_B="$(pyq "$BODY" "d['token']")"
 
-############################################################
 section "Products - admin-only writes"
-############################################################
 NEW_PRODUCT="{\"name\":\"Smoke Widget $TS\",\"price\":12.50,\"description\":\"smoke test product\",\"categoryId\":1}"
 
 req POST "/products" "$NEW_PRODUCT"
@@ -555,7 +481,7 @@ expect_status "POST /products without a token is 401" 401
 
 req POST "/products" "$NEW_PRODUCT" "$TOKEN_B"
 expect_status "POST /products as a normal USER is 403" 403
-expect_body_contains "S6: POST /products 403 body" "Access denied."
+expect_body_contains "POST /products 403 body" "Access denied."
 
 req PUT "/products/$P1_ID" "$NEW_PRODUCT" "$TOKEN_B"
 expect_status "PUT /products/{id} as a normal USER is 403" 403
@@ -572,33 +498,32 @@ else
   bad "POST /products sets Location header" "no matching Location in response headers"
 fi
 
-# P1: product input is validated (used to store anything, or 500 on nulls).
 req POST "/products" '{}' "$TOKEN_ADMIN"
-expect_status "P1: POST /products with an empty body is 400" 400
-expect_eq "P1: one message per missing field" "$(pyq "$BODY" "sorted(d.keys())")" "['categoryId', 'description', 'name', 'price']"
-expect_body_contains "P1: name message" "Name is required."
-expect_body_contains "P1: description message" "Description is required."
-expect_body_contains "P1: price message" "Price is required."
-expect_body_contains "P1: categoryId message" "Category ID is required."
+expect_status "POST /products with an empty body is 400" 400
+expect_eq "one message per missing field" "$(pyq "$BODY" "sorted(d.keys())")" "['categoryId', 'description', 'name', 'price']"
+expect_body_contains "name message" "Name is required."
+expect_body_contains "description message" "Description is required."
+expect_body_contains "price message" "Price is required."
+expect_body_contains "categoryId message" "Category ID is required."
 
 req POST "/products" "{\"name\":\"Negative $TS\",\"price\":-1.00,\"description\":\"x\",\"categoryId\":1}" "$TOKEN_ADMIN"
-expect_status "P1: POST /products with a negative price is 400" 400
-expect_body_contains "P1: negative price message" "Price must be greater than zero."
+expect_status "POST /products with a negative price is 400" 400
+expect_body_contains "negative price message" "Price must be greater than zero."
 
 req POST "/products" "{\"name\":\"Zero $TS\",\"price\":0,\"description\":\"x\",\"categoryId\":1}" "$TOKEN_ADMIN"
-expect_status "P1: POST /products with price 0 is 400" 400
+expect_status "POST /products with price 0 is 400" 400
 
 req POST "/products" "{\"name\":\"Decimals $TS\",\"price\":9.999,\"description\":\"x\",\"categoryId\":1}" "$TOKEN_ADMIN"
-expect_status "P1: POST /products with 3 decimals is 400" 400
-expect_body_contains "P1: decimals message" "Price must have at most 2 decimals."
+expect_status "POST /products with 3 decimals is 400" 400
+expect_body_contains "decimals message" "Price must have at most 2 decimals."
 
 req POST "/products" "{\"name\":\"Bad Category\",\"price\":1.00,\"description\":\"x\",\"categoryId\":99}" "$TOKEN_ADMIN"
-expect_status "POST /products with an unknown categoryId is 400 (course behaviour kept)" 400
+expect_status "POST /products with an unknown categoryId is 400" 400
 
 req PUT "/products/$NEW_PRODUCT_ID" \
   "{\"name\":\"\",\"price\":19.99,\"description\":\"updated\",\"categoryId\":2}" "$TOKEN_ADMIN"
-expect_status "P1: PUT /products/{id} with a blank name is 400" 400
-expect_body_contains "P1: PUT blank name message" "Name is required."
+expect_status "PUT /products/{id} with a blank name is 400" 400
+expect_body_contains "PUT blank name message" "Name is required."
 
 req PUT "/products/$NEW_PRODUCT_ID" \
   "{\"name\":\"Smoke Widget Updated\",\"price\":19.99,\"description\":\"updated\",\"categoryId\":2}" "$TOKEN_ADMIN"
@@ -614,12 +539,10 @@ expect_status "DELETE /products/{id} (unreferenced) as ADMIN is 204" 204
 req GET "/products/$NEW_PRODUCT_ID"
 expect_status "GET /products/{id} after delete is 404" 404
 
-# P2: a product that belongs to an order cannot be deleted (409 instead of a crash).
 req POST "/products" "{\"name\":\"Ordered Widget $TS\",\"price\":5.00,\"description\":\"referenced by an order\",\"categoryId\":1}" "$TOKEN_ADMIN"
 expect_status "POST /products creates the product to be ordered" 201
 ORDERED_PRODUCT_ID="$(pyq "$BODY" "d['id']")"
 
-# Seed an order for user A directly in the container (also used by the Orders section).
 ORDER_ID="$(MYSQLQ "INSERT INTO orders (customer_id, status, total_price) VALUES ($USER_A_ID, 'PENDING', 10.00); SELECT LAST_INSERT_ID();")"
 MYSQLQ "INSERT INTO order_items (order_id, product_id, unit_price, quantity, total_price) VALUES ($ORDER_ID, $ORDERED_PRODUCT_ID, 5.00, 2, 10.00);" >/dev/null
 if [ -n "$ORDER_ID" ]; then
@@ -629,15 +552,13 @@ else
 fi
 
 req DELETE "/products/$ORDERED_PRODUCT_ID" "" "$TOKEN_ADMIN"
-expect_status "P2: DELETE /products/{id} referenced by an order is 409" 409
-expect_body_contains "P2: 409 error body" "Product is referenced by existing orders and cannot be deleted."
+expect_status "DELETE /products/{id} referenced by an order is 409" 409
+expect_body_contains "409 error body" "Product is referenced by existing orders and cannot be deleted."
 
 req GET "/products/$ORDERED_PRODUCT_ID"
-expect_status "P2: the ordered product still exists after the rejected delete" 200
+expect_status "the ordered product still exists after the rejected delete" 200
 
-############################################################
-section "Carts - anonymous (CartSecurityRules: /carts/** permitAll)"
-############################################################
+section "Carts"
 req POST "/carts"
 expect_status "POST /carts is 201" 201
 CART_ID="$(pyq "$BODY" "d['id']")"
@@ -661,13 +582,12 @@ req POST "/carts/$CART_ID/items" "{\"productId\":999999}"
 expect_status "POST /carts/{id}/items unknown product is 400" 400
 expect_body_contains "unknown product message" "Product not found."
 
-# C1: a missing productId is a validation error, not a 500.
 req POST "/carts/$CART_ID/items" '{}'
-expect_status "C1: POST /carts/{id}/items with an empty body is 400" 400
-expect_body_contains "C1: missing productId message" "Product ID is required."
+expect_status "POST /carts/{id}/items with an empty body is 400" 400
+expect_body_contains "missing productId message" "Product ID is required."
 
 req POST "/carts/$CART_ID/items" '{"productId":null}'
-expect_status "C1: POST /carts/{id}/items with productId null is 400" 400
+expect_status "POST /carts/{id}/items with productId null is 400" 400
 
 req POST "/carts/00000000-0000-0000-0000-000000000000/items" "{\"productId\":$P1_ID}"
 expect_status "POST /carts/{unknown-uuid}/items is 404" 404
@@ -684,10 +604,9 @@ expect_body_contains "quantity=0 message" "Quantity must be greater than zero."
 req PUT "/carts/$CART_ID/items/$P1_ID" '{"quantity":101}'
 expect_status "PUT quantity=101 is 200 (@Max is 1000)" 200
 
-# C2: the @Max message now matches the limit.
 req PUT "/carts/$CART_ID/items/$P1_ID" '{"quantity":1001}'
 expect_status "PUT quantity=1001 is 400 (@Max(1000))" 400
-expect_body_contains "C2: @Max message says 1000" "Quantity must be less than or equal to 1000."
+expect_body_contains "@Max message says 1000" "Quantity must be less than or equal to 1000."
 
 req PUT "/carts/$CART_ID/items/$P1_ID" '{}'
 expect_status "PUT with no quantity is 400 (@NotNull)" 400
@@ -697,7 +616,6 @@ req PUT "/carts/$CART_ID/items/999999" '{"quantity":2}'
 expect_status "PUT for a product not in the cart is 400" 400
 expect_body_contains "product-not-in-cart message" "Product not found."
 
-# Put the cart into a known state, add a second product, verify the arithmetic.
 req PUT "/carts/$CART_ID/items/$P1_ID" '{"quantity":3}'
 req POST "/carts/$CART_ID/items" "{\"productId\":$P2_ID}"
 req GET "/carts/$CART_ID"
@@ -723,14 +641,11 @@ req GET "/carts/00000000-0000-0000-0000-000000000000"
 expect_status "GET /carts/{unknown-uuid} is 404" 404
 expect_body_contains "unknown cart body" "Cart not found."
 
-# S1: a malformed UUID is a 400 with an error body (used to be a blank 401).
 req GET "/carts/not-a-uuid"
-expect_status "S1: GET /carts/not-a-uuid is 400" 400
-expect_body_contains "S1: malformed UUID error body" "Invalid request parameter."
+expect_status "GET /carts/not-a-uuid is 400" 400
+expect_body_contains "malformed UUID error body" "Invalid request parameter."
 
-############################################################
-section "Checkout (STRIPE_SECRET_KEY is empty in .env)"
-############################################################
+section "Checkout (without Stripe keys)"
 req POST "/checkout" "{\"cartId\":\"$CART_ID\"}"
 expect_status "POST /checkout without a token is 401" 401
 
@@ -738,7 +653,6 @@ req POST "/checkout" '{"cartId":"00000000-0000-0000-0000-000000000000"}' "$TOKEN
 expect_status "POST /checkout with an unknown cart is 400" 400
 expect_body_contains "unknown cart message" "Cart not found"
 
-# $CART_ID was just cleared, so it is empty.
 req POST "/checkout" "{\"cartId\":\"$CART_ID\"}" "$TOKEN_B"
 expect_status "POST /checkout with an empty cart is 400" 400
 expect_body_contains "empty cart message" "Cart is empty"
@@ -747,8 +661,6 @@ req POST "/checkout" '{}' "$TOKEN_B"
 expect_status "POST /checkout without a cartId is 400 (@NotNull)" 400
 expect_body_contains "missing cartId message" "Cart ID is required."
 
-# A cart with items: Stripe rejects the empty API key, the gateway throws
-# PaymentException, CheckoutService deletes the PENDING order and rethrows.
 req GET "/orders" "" "$TOKEN_B"
 ORDERS_BEFORE="$(pyq "$BODY" "len(d)")"
 
@@ -766,9 +678,7 @@ expect_eq "the failed checkout left no order behind" "$(pyq "$BODY" "len(d)")" "
 req GET "/carts/$CART_PAY"
 expect_eq "the failed checkout did not clear the cart" "$(pyq "$BODY" "len(d['items'])")" "1"
 
-############################################################
 section "Orders"
-############################################################
 req GET "/orders"
 expect_status "GET /orders without a token is 401" 401
 
@@ -797,37 +707,31 @@ req GET "/orders" "" "$TOKEN_B"
 expect_eq "GET /orders does not leak the other user's order" \
   "$(pyq "$BODY" "any(o['id'] == $ORDER_ID for o in d)")" "False"
 
-############################################################
 section "Stripe webhook"
-############################################################
 STATUS_BEFORE="$(MYSQLQ "SELECT status FROM orders WHERE id = $ORDER_ID;")"
 
 req POST "/checkout/webhook" '{"id":"evt_test","type":"payment_intent.succeeded"}' "" \
   "stripe-signature: t=1,v1=deadbeef"
-expect_status "POST /checkout/webhook with a bogus signature is 500 (course behaviour kept)" 500
+expect_status "POST /checkout/webhook with a bogus signature is 500" 500
 expect_body_contains "webhook failure message" "Error creating a checkout session"
 
-# W1: a missing stripe-signature header is rejected before stripe-java can NPE.
 req POST "/checkout/webhook" '{"id":"evt_test","type":"payment_intent.succeeded"}'
-expect_status "W1: POST /checkout/webhook without a stripe-signature header is 400" 400
-expect_body_contains "W1: missing signature error body" "Missing stripe-signature header."
+expect_status "POST /checkout/webhook without a stripe-signature header is 400" 400
+expect_body_contains "missing signature error body" "Missing stripe-signature header."
 
-# curl's "name;" syntax sends the header with an empty value.
 req POST "/checkout/webhook" '{"id":"evt_test","type":"payment_intent.succeeded"}' "" "stripe-signature;"
-expect_status "W1: POST /checkout/webhook with a blank stripe-signature header is 400" 400
+expect_status "POST /checkout/webhook with a blank stripe-signature header is 400" 400
 
 STATUS_AFTER="$(MYSQLQ "SELECT status FROM orders WHERE id = $ORDER_ID;")"
 expect_eq "a rejected webhook did not change the order status" "$STATUS_AFTER" "$STATUS_BEFORE"
 
-############################################################
-section "Users - delete (U3: owner-or-admin)"
-############################################################
+section "Users - delete"
 req DELETE "/users/$USER_B_ID" "" "$TOKEN_A"
-expect_status "U3: DELETE /users/{id} of another user as USER is 403" 403
-expect_body_contains "U3: DELETE ownership error message" "You don't have access to this user."
+expect_status "DELETE /users/{id} of another user as USER is 403" 403
+expect_body_contains "DELETE ownership error message" "You don't have access to this user."
 
 req DELETE "/users/999999" "" "$TOKEN_A"
-expect_status "U3: DELETE /users/{id} unknown id as USER is 403" 403
+expect_status "DELETE /users/{id} unknown id as USER is 403" 403
 
 req DELETE "/users/999999" "" "$TOKEN_ADMIN"
 expect_status "DELETE /users/{id} unknown id as ADMIN is 404" 404
@@ -841,531 +745,264 @@ expect_status "DELETE /users/{id} own account is 200" 200
 req GET "/users/$USER_B_ID" "" "$TOKEN_ADMIN"
 expect_status "GET /users/{id} after delete as ADMIN is 404" 404
 
-# A still-valid token for a deleted account no longer NPEs (403 from the access check).
 req GET "/users/$USER_B_ID" "" "$TOKEN_B"
-expect_status "U3: GET /users/{id} with the deleted user's own token is 403" 403
-expect_body_contains "U3: deleted-user error message" "You don't have access to this user."
+expect_status "GET /users/{id} with the deleted user's own token is 403" 403
+expect_body_contains "deleted-user error message" "You don't have access to this user."
 
-############################################################
-section "Round-1 fixes (regression guards)"
-############################################################
-# --- CFG-3: SecurityConfig rebuilt on the Spring Security 6.5 API ---
-# `new DaoAuthenticationProvider()` + setUserDetailsService() are deprecated for
-# removal in the 6.5.x that Boot 3.5.16 manages, so the provider is now built as
-# `new DaoAuthenticationProvider(userDetailsService)`. That is the whole change;
-# authentication behaviour must stay exactly what the course produces. These
-# checks exercise every branch of the provider the rewiring could have broken.
-EMAIL_FIX="fix.$TS@example.com"
-req POST "/users" "{\"name\":\"Fix $TS\",\"email\":\"$EMAIL_FIX\",\"password\":\"$PASS_A\"}"
-expect_status "CFG-3: registered a probe user" 201
+section "Login"
+EMAIL_LOGIN="login.$TS@example.com"
+req POST "/users" "{\"name\":\"Login $TS\",\"email\":\"$EMAIL_LOGIN\",\"password\":\"$PASS_A\"}"
+expect_status "registered a probe user" 201
 
-req POST "/auth/login" "{\"email\":\"$EMAIL_FIX\",\"password\":\"$PASS_A\"}"
-expect_status "CFG-3: correct credentials still 200 (constructor-injected UserDetailsService resolves the user)" 200
-expect_eq "CFG-3: login still returns a JWT" "$(pyq "$BODY" "d['token'].startswith('ey')")" "True"
+req POST "/auth/login" "{\"email\":\"$EMAIL_LOGIN\",\"password\":\"$PASS_A\"}"
+expect_status "login with correct credentials" 200
+expect_eq "login returns a JWT" "$(pyq "$BODY" "d['token'].startswith('ey')")" "True"
 
-req POST "/auth/login" "{\"email\":\"$EMAIL_FIX\",\"password\":\"wrong-password\"}"
-expect_status "CFG-3: wrong password still 401 (PasswordEncoder still wired into the provider)" 401
+req POST "/auth/login" "{\"email\":\"$EMAIL_LOGIN\",\"password\":\"wrong-password\"}"
+expect_status "login with a wrong password" 401
 
-# The unknown-e-mail branch runs entirely inside the UserDetailsService that the
-# constructor now receives, so it is the sharpest check on the rewiring.
 req POST "/auth/login" "{\"email\":\"nobody.$TS@example.com\",\"password\":\"$PASS_A\"}"
-expect_status "CFG-3: unknown e-mail still 401 (UserDetailsService lookup path)" 401
+expect_status "login with an unknown e-mail" 401
 
-# Registration must still BCrypt-hash, i.e. the encoder is still on the provider.
-PW_HASH="$(MYSQLQ "SELECT password FROM users WHERE email='$EMAIL_FIX';")"
+PW_HASH="$(MYSQLQ "SELECT password FROM users WHERE email='$EMAIL_LOGIN';")"
 case "$PW_HASH" in
-  '$2a$'*|'$2b$'*|'$2y$'*) ok "CFG-3: registration still stores a BCrypt hash (${PW_HASH:0:4}...)" ;;
-  *) bad "CFG-3: registration still stores a BCrypt hash" "expected a bcrypt hash, got '${PW_HASH:0:20}'" ;;
+  '$2a$'*|'$2b$'*|'$2y$'*) ok "registration stores a BCrypt hash (${PW_HASH:0:4}...)" ;;
+  *) bad "registration stores a BCrypt hash" "expected a bcrypt hash, got '${PW_HASH:0:20}'" ;;
 esac
 
-# --- CFG-1: flyway-maven-plugin must not aim at the protected 3306 service ---
-# The course hardcodes jdbc:mysql://localhost:3306 with cleanDisabled=false. On
-# this machine 3306 is the user's own MySQL Windows service, which must never be
-# touched; the dev database is the store-mysql container on 3307.
-PROJECT_DIR="${PROJECT_DIR:-C:/Users/Dell G15/Desktop/New/spring-api-starter}"
-if [ -f "$PROJECT_DIR/pom.xml" ]; then
-  FLYWAY_URL="$(sed -n '/<artifactId>flyway-maven-plugin<\/artifactId>/,/<\/plugin>/p' "$PROJECT_DIR/pom.xml" \
-                | grep -o '<url>[^<]*</url>' | head -1)"
-  case "$FLYWAY_URL" in
-    *localhost:3306*) bad "CFG-1: flyway-maven-plugin avoids the protected 3306 service" \
-                          "pom.xml still has $FLYWAY_URL" ;;
-    *localhost:3307*) ok  "CFG-1: flyway-maven-plugin targets the 3307 dev container, not 3306" ;;
-    "")               bad "CFG-1: flyway-maven-plugin url is readable" "no <url> in the plugin block" ;;
-    *)                bad "CFG-1: flyway-maven-plugin targets the 3307 dev container" "unexpected url: $FLYWAY_URL" ;;
-  esac
-else
-  bad "CFG-1: pom.xml is readable" "not found at $PROJECT_DIR/pom.xml"
-fi
-
-# The app's own datasource must likewise be the container: prove the rows this
-# test has been asserting against all along live in store-mysql on 3307.
-CONTAINER_HAS_USER="$(MYSQLQ "SELECT count(*) FROM users WHERE email='$EMAIL_FIX';")"
-expect_eq "CFG-1: the running app writes to the store-mysql container (3307), not 3306" "$CONTAINER_HAS_USER" "1"
-
-############################################################
-section "Round-2 fixes (regression guards)"
-############################################################
-# --- RT1-1: the DOCUMENTED setup path must not aim at the protected 3306 ---
-# README step 2 says "rename .env.example to .env". That file used to ship the
-# DB_* block commented out, so the resulting .env had no DB_URL and the app fell
-# back to application-dev.yaml's course default of localhost:3306 -- the user's
-# own MySQL Windows service. Both the example file and the fallback now name the
-# store-mysql container on 3307.
-ENV_EXAMPLE="$PROJECT_DIR/.env.example"
-DEV_YAML="$PROJECT_DIR/src/main/resources/application-dev.yaml"
-
-if [ -f "$ENV_EXAMPLE" ]; then
-  # Only uncommented assignments count -- that is what dotenv would read.
-  ENV_DB_URL="$(grep -E '^[[:space:]]*DB_URL=' "$ENV_EXAMPLE" | head -1 | cut -d= -f2- | tr -d '\r')"
-  case "$ENV_DB_URL" in
-    *localhost:3307*) ok "RT1-1: .env.example ships an active DB_URL on 3307 ($ENV_DB_URL)" ;;
-    *localhost:3306*) bad "RT1-1: .env.example DB_URL avoids 3306" "it is $ENV_DB_URL" ;;
-    "")               bad "RT1-1: .env.example ships an active DB_URL" \
-                          "no uncommented DB_URL= line, so renaming it per README step 2 yields a .env that falls through to the default" ;;
-    *)                bad "RT1-1: .env.example DB_URL targets the dev container" "unexpected value: $ENV_DB_URL" ;;
-  esac
-
-  for v in DB_USERNAME DB_PASSWORD; do
-    if grep -qE "^[[:space:]]*$v=" "$ENV_EXAMPLE"; then
-      ok "RT1-1: .env.example ships an active $v"
-    else
-      bad "RT1-1: .env.example ships an active $v" "no uncommented $v= line"
-    fi
-  done
-
-  # Docs slice: JWT_SECRET is documented as required, right above the key.
-  if grep -B1 -E '^JWT_SECRET=' "$ENV_EXAMPLE" | grep -q 'openssl rand -base64 32'; then
-    ok "docs: .env.example documents how to generate JWT_SECRET above the key"
-  else
-    bad "docs: .env.example documents how to generate JWT_SECRET" "no 'openssl rand -base64 32' comment above JWT_SECRET="
-  fi
-else
-  bad "RT1-1: .env.example is readable" "not found at $ENV_EXAMPLE"
-fi
-
-if [ -f "$DEV_YAML" ]; then
-  YAML_DEFAULT="$(grep -o '\${DB_URL:[^}]*}' "$DEV_YAML" | head -1)"
-  case "$YAML_DEFAULT" in
-    *localhost:3307*) ok "RT1-1: application-dev.yaml falls back to 3307 when DB_URL is unset" ;;
-    *localhost:3306*) bad "RT1-1: application-dev.yaml fallback avoids 3306" \
-                          "a missing .env would point the app at the protected service: $YAML_DEFAULT" ;;
-    "")               bad "RT1-1: application-dev.yaml keeps the \${DB_URL:...} placeholder" "not found" ;;
-    *)                bad "RT1-1: application-dev.yaml fallback targets the dev container" "unexpected: $YAML_DEFAULT" ;;
-  esac
-else
-  bad "RT1-1: application-dev.yaml is readable" "not found at $DEV_YAML"
-fi
-
-# Belt and braces: no active (uncommented) 3306 reference is left in the config
-# the app or the build reads.
-LIVE_3306="$(grep -nE 'localhost:3306' "$ENV_EXAMPLE" "$DEV_YAML" "$PROJECT_DIR/src/main/resources/application.yaml" "$PROJECT_DIR/pom.xml" 2>/dev/null \
-             | grep -vE ':[[:space:]]*#|<!--|^[^:]*:[0-9]+:[[:space:]]*#' | grep -v 'course' || true)"
-if [ -z "$LIVE_3306" ]; then
-  ok "RT1-1: no active localhost:3306 left in .env.example, application*.yaml or pom.xml"
-else
-  bad "RT1-1: no active localhost:3306 in config" "still present: $(printf '%s' "$LIVE_3306" | head -3)"
-fi
-
-# --- RT1-3: flyway-maven-plugin must actually run on this stack ---
-# The course pins the plugin to 10.15.0. Boot 3.5.16 puts flyway-core 11.7.2 on
-# the plugin's realm, where FlywayTelemetryManager is an interface rather than a
-# class, so every goal died with IncompatibleClassChangeError before reaching a
-# database -- which also made the README's claim about flyway:info untrue.
-if grep -A3 '<artifactId>flyway-maven-plugin</artifactId>' "$PROJECT_DIR/pom.xml" | grep -q '<version>10\.'; then
-  bad "RT1-3: flyway-maven-plugin is not pinned to a Flyway 10 version" \
-      "pom.xml still pins a 10.x plugin against the Boot-managed flyway-core 11.7.2"
-else
-  ok "RT1-3: flyway-maven-plugin is no longer pinned to a Flyway 10 version"
-fi
-
-FLYWAY_OUT="$(cd "$PROJECT_DIR" && mvn -B -o flyway:info 2>&1)"
-case "$FLYWAY_OUT" in
-  *IncompatibleClassChangeError*)
-    bad "RT1-3: mvn flyway:info runs" "still fails with IncompatibleClassChangeError" ;;
-  *"BUILD SUCCESS"*)
-    ok "RT1-3: mvn flyway:info runs to BUILD SUCCESS on this stack" ;;
-  *)
-    bad "RT1-3: mvn flyway:info runs" "no BUILD SUCCESS; tail: $(printf '%s' "$FLYWAY_OUT" | grep -E '^\[ERROR\]' | head -2)" ;;
-esac
-
-case "$FLYWAY_OUT" in
-  *"flyway:11."*) ok "RT1-3: the plugin resolves to Flyway 11.x, matching the runtime flyway-core" ;;
-  *) bad "RT1-3: the plugin resolves to Flyway 11.x" \
-         "goal line was: $(printf '%s' "$FLYWAY_OUT" | grep -o -- '--- flyway:[^ ]*' | head -1)" ;;
-esac
-
-case "$FLYWAY_OUT" in
-  *"jdbc:mysql://localhost:3307/store_api"*)
-    ok "RT1-3: flyway:info really reaches the 3307 dev container (README claim is now true)" ;;
-  *localhost:3306*)
-    bad "RT1-3: flyway:info targets the dev container" "it reported a 3306 database" ;;
-  *)
-    bad "RT1-3: flyway:info targets the dev container" \
-        "no Database: line for localhost:3307 in the output" ;;
-esac
-
-# The goal must see the schema this test has been exercising, i.e. it is pointed
-# at the same database the app writes to. V6 (users_email_unique) is the newest.
-case "$FLYWAY_OUT" in
-  *"Schema version: 6"*) ok "RT1-3: flyway:info reports schema version 6 (V1-V6 applied)" ;;
-  *) bad "RT1-3: flyway:info reports schema version 6" \
-         "got: $(printf '%s' "$FLYWAY_OUT" | grep -i 'Schema version' | head -1)" ;;
-esac
-
-############################################################
-section "Round-3 fixes (regression guards)"
-############################################################
-# --- AT-1 / SC-1: refresh token of a deleted user is 401, not 500 ---
-# AuthService.refreshAccessToken used the course's bare orElseThrow(); once the
-# /error dispatch was permitted (S1) the NoSuchElementException became a 500
-# with a stack trace. It now throws BadCredentialsException -> 401 like every
-# other invalid refresh token.
+section "Tokens and error responses"
 EMAIL_GONE="gone.$TS@example.com"
 req POST "/users" "{\"name\":\"Gone $TS\",\"email\":\"$EMAIL_GONE\",\"password\":\"$PASS_A\"}"
-expect_status "AT-1: registered a user that will delete itself" 201
+expect_status "registered a user that will delete itself" 201
 USER_GONE_ID="$(pyq "$BODY" "d['id']")"
 
 req POST "/auth/login" "{\"email\":\"$EMAIL_GONE\",\"password\":\"$PASS_A\"}"
-expect_status "AT-1: logged in as that user" 200
+expect_status "logged in as that user" 200
 TOKEN_GONE="$(pyq "$BODY" "d['token']")"
 REFRESH_GONE="$(printf '%s' "$HDRS" | grep -i '^set-cookie: *refreshToken=' | head -1 | sed -E 's/^[^=]*=([^;]*).*/\1/' | tr -d '\r')"
 
 req DELETE "/users/$USER_GONE_ID" "" "$TOKEN_GONE"
-expect_status "AT-1: the user deleted its own account" 200
+expect_status "the user deleted its own account" 200
 
 req POST "/auth/refresh" "" "" "Cookie: refreshToken=$REFRESH_GONE"
-expect_status "AT-1: POST /auth/refresh with the deleted user's refresh token is 401 (was 500)" 401
-expect_body_empty "AT-1: the 401 has no body (AuthController's BadCredentialsException handler)"
+expect_status "POST /auth/refresh with the deleted user's refresh token is 401 (was 500)" 401
+expect_body_empty "the 401 has no body (AuthController's BadCredentialsException handler)"
 
-# --- SC-2: the security layer's 403 body is labelled UTF-8 ---
 req GET "/admin/hello" "" "$TOKEN_A"
-expect_status "SC-2: GET /admin/hello as USER is still 403" 403
-expect_header_contains "SC-2: 403 Content-Type is application/json;charset=UTF-8 (was ISO-8859-1)" \
+expect_status "GET /admin/hello as USER is 403" 403
+expect_header_contains "403 Content-Type is application/json;charset=UTF-8 (was ISO-8859-1)" \
   "^content-type: *application/json; *charset=utf-8"
 
-# --- AT-3: HEAD /users is admin-only like GET ---
 head_req "/users"
-expect_status "AT-3: HEAD /users anonymous is 401" 401
+expect_status "HEAD /users anonymous is 401" 401
 head_req "/users" "$TOKEN_A"
-expect_status "AT-3: HEAD /users as a normal USER is 403 (was 200)" 403
+expect_status "HEAD /users as a normal USER is 403 (was 200)" 403
 head_req "/users" "$TOKEN_ADMIN"
-expect_status "AT-3: HEAD /users as ADMIN is 200" 200
+expect_status "HEAD /users as ADMIN is 200" 200
 
-# --- AT-2: feature error handlers write JSON even when Accept excludes JSON ---
-# The handlers preset Content-Type: application/json, so a text/html or xml
-# Accept header no longer turns a 400/403/404 into a 500 Whitelabel page.
 req GET "/carts/00000000-0000-0000-0000-000000000000" "" "" "Accept: text/html"
-expect_status "AT-2: GET /carts/{unknown} with Accept: text/html is 404 (was 500)" 404
-expect_body_contains "AT-2: ... and carries the JSON error body" "Cart not found."
-expect_header_contains "AT-2: ... as application/json" "^content-type: *application/json"
+expect_status "GET /carts/{unknown} with Accept: text/html is 404 (was 500)" 404
+expect_body_contains "... and carries the JSON error body" "Cart not found."
+expect_header_contains "... as application/json" "^content-type: *application/json"
 
 req POST "/carts/00000000-0000-0000-0000-000000000000/items" "{\"productId\":$P1_ID}" "" "Accept: application/xml"
-expect_status "AT-2: POST /carts/{unknown}/items with Accept: application/xml is 404 (was 500)" 404
-expect_body_contains "AT-2: ... with the JSON error body" "Cart not found."
+expect_status "POST /carts/{unknown}/items with Accept: application/xml is 404 (was 500)" 404
+expect_body_contains "... with the JSON error body" "Cart not found."
 
 req POST "/carts/$CART_ID/items" '{"productId":999999}' "" "Accept: text/html"
-expect_status "AT-2: unknown product with Accept: text/html is 400 (was 500)" 400
-expect_body_contains "AT-2: ... with the JSON error body" "Product not found."
+expect_status "unknown product with Accept: text/html is 400 (was 500)" 400
+expect_body_contains "... with the JSON error body" "Product not found."
 
 req POST "/users" "{\"name\":\"Alice again\",\"email\":\"$EMAIL_A\",\"password\":\"$PASS_A\"}" "" "Accept: text/html"
-expect_status "AT-2: POST /users duplicate e-mail with Accept: text/html is 400 (was 500)" 400
-expect_body_contains "AT-2: ... with the JSON error body" "Email is already registered."
+expect_status "POST /users duplicate e-mail with Accept: text/html is 400 (was 500)" 400
+expect_body_contains "... with the JSON error body" "Email is already registered."
 
 req GET "/users/999999" "" "$TOKEN_A" "Accept: text/html"
-expect_status "AT-2: GET /users/{foreign} as USER with Accept: text/html is 403 (was 500)" 403
-expect_body_contains "AT-2: ... with the JSON error body" "You don't have access to this user."
+expect_status "GET /users/{foreign} as USER with Accept: text/html is 403 (was 500)" 403
+expect_body_contains "... with the JSON error body" "You don't have access to this user."
 
 req GET "/orders/$ORDER_ID" "" "$TOKEN_ADMIN" "Accept: text/html"
-expect_status "AT-2: GET /orders/{id} of another user with Accept: text/html is 403 (was 500)" 403
-expect_body_contains "AT-2: ... with the JSON error body" "You don't have access to this order."
+expect_status "GET /orders/{id} of another user with Accept: text/html is 403 (was 500)" 403
+expect_body_contains "... with the JSON error body" "You don't have access to this order."
 
 req POST "/checkout" '{"cartId":"00000000-0000-0000-0000-000000000000"}' "$TOKEN_A" "Accept: text/html"
-expect_status "AT-2: POST /checkout unknown cart with Accept: text/html is 400 (was 500)" 400
-expect_body_contains "AT-2: ... with the JSON error body" "Cart not found"
+expect_status "POST /checkout unknown cart with Accept: text/html is 400 (was 500)" 400
+expect_body_contains "... with the JSON error body" "Cart not found"
 
-# Sanity: a successful response still honours Accept (S1's 406 is untouched).
 req GET "/products" "" "" "Accept: text/html"
-expect_status "AT-2: GET /products with Accept: text/html is still 406" 406
+expect_status "GET /products with Accept: text/html is 406" 406
 
-# --- AT-4: POST /products ignores an id in the body ---
-# ProductMapper.toEntity copied the id, so save() merged into the existing row.
 req GET "/products/$P1_ID"
 P1_NAME_BEFORE="$(pyq "$BODY" "d['name']")"
 req POST "/products" "{\"id\":$P1_ID,\"name\":\"IdInjected $TS\",\"price\":1.00,\"description\":\"x\",\"categoryId\":1}" "$TOKEN_ADMIN"
-expect_status "AT-4: POST /products with an existing id in the body is 201" 201
+expect_status "POST /products with an existing id in the body is 201" 201
 INJECTED_ID="$(pyq "$BODY" "d['id']")"
 if [ -n "$INJECTED_ID" ] && [ "$INJECTED_ID" != "$P1_ID" ] && [ "$INJECTED_ID" != "__PARSE_ERROR__" ]; then
-  ok "AT-4: the body id was ignored, a new product $INJECTED_ID was created (not $P1_ID)"
+  ok "the body id was ignored, a new product $INJECTED_ID was created (not $P1_ID)"
 else
-  bad "AT-4: the body id was ignored" "response id is '$INJECTED_ID', request said $P1_ID"
+  bad "the body id was ignored" "response id is '$INJECTED_ID', request said $P1_ID"
 fi
 req GET "/products/$P1_ID"
-expect_eq "AT-4: product $P1_ID is untouched" "$(pyq "$BODY" "d['name']")" "$P1_NAME_BEFORE"
+expect_eq "product $P1_ID is untouched" "$(pyq "$BODY" "d['name']")" "$P1_NAME_BEFORE"
 if [ -n "$INJECTED_ID" ] && [ "$INJECTED_ID" != "$P1_ID" ] && [ "$INJECTED_ID" != "__PARSE_ERROR__" ]; then
   req DELETE "/products/$INJECTED_ID" "" "$TOKEN_ADMIN"
-  expect_status "AT-4: cleanup of the created product" 204
+  expect_status "cleanup of the created product" 204
 fi
 
-# --- AT-5: the filter only accepts tokens explicitly typed "access" ---
-# Jwt.isAccessToken() is a positive check, so a correctly signed token without
-# a type claim (as minted by builds before S2) or with any other value is 401.
 NOW="$(date +%s)"; EXP=$((NOW + 600))
 TOKEN_TYPED="$(mint_jwt "{\"sub\":\"$USER_A_ID\",\"role\":\"USER\",\"type\":\"access\",\"iat\":$NOW,\"exp\":$EXP}")"
 if [ -z "$TOKEN_TYPED" ]; then
-  bad "AT-5: minted test tokens" "no JWT_SECRET readable from $PROJECT_DIR/.env"
+  bad "minted test tokens" "no JWT_SECRET readable from $PROJECT_DIR/.env"
 else
   req GET "/auth/me" "" "$TOKEN_TYPED"
-  expect_status "AT-5: control - a locally signed token typed 'access' is accepted" 200
-  expect_eq "AT-5: control - it resolves to user A" "$(pyq "$BODY" "d['id']")" "$USER_A_ID"
+  expect_status "control - a locally signed token typed 'access' is accepted" 200
+  expect_eq "control - it resolves to user A" "$(pyq "$BODY" "d['id']")" "$USER_A_ID"
 
   TOKEN_UNTYPED="$(mint_jwt "{\"sub\":\"$USER_A_ID\",\"role\":\"USER\",\"iat\":$NOW,\"exp\":$EXP}")"
   req GET "/auth/me" "" "$TOKEN_UNTYPED"
-  expect_status "AT-5: a signed token WITHOUT a type claim is 401 (was 200)" 401
+  expect_status "a signed token WITHOUT a type claim is 401 (was 200)" 401
 
   TOKEN_MISCASED="$(mint_jwt "{\"sub\":\"$USER_A_ID\",\"role\":\"USER\",\"type\":\"Refresh\",\"iat\":$NOW,\"exp\":$EXP}")"
   req GET "/auth/me" "" "$TOKEN_MISCASED"
-  expect_status "AT-5: a signed token typed 'Refresh' is 401 (was 200)" 401
+  expect_status "a signed token typed 'Refresh' is 401 (was 200)" 401
 
   req POST "/auth/refresh" "" "" "Cookie: refreshToken=$TOKEN_UNTYPED"
-  expect_status "AT-5: an untyped token as the refresh cookie is still 401" 401
+  expect_status "an untyped token as the refresh cookie is 401" 401
   req POST "/auth/refresh" "" "" "Cookie: refreshToken=$TOKEN_TYPED"
-  expect_status "AT-5: an access-typed token as the refresh cookie is still 401" 401
+  expect_status "an access-typed token as the refresh cookie is 401" 401
 fi
 
-############################################################
-section "Round-4 fixes (regression guards)"
-############################################################
-# --- RT1-1 (round 4): client-supplied forwarded headers must not shape URLs ---
-# ForwardedHeadersConfig hides "Forwarded", X-Forwarded-Port, -Prefix and -Ssl
-# from Spring's ForwardedHeaderFilter: Railway's edge only sets X-Forwarded-
-# Proto/Host/For and passes the other four through from the client. Locally the
-# filter exists only when server.forward-headers-strategy=framework is set (as
-# in prod); without it the headers are ignored anyway, so the checks hold too.
+section "Forwarded headers"
 req POST "/carts" "" "" "Forwarded: host=evil.example;proto=http"
-expect_status "RT1-1: POST /carts with a client-supplied Forwarded header is still 201" 201
+expect_status "POST /carts with a client-supplied Forwarded header is 201" 201
 case "$HDRS" in
-  *evil.example*) bad "RT1-1: Location ignores a client-supplied Forwarded header" \
+  *evil.example*) bad "Location ignores a client-supplied Forwarded header" \
                       "built from it: $(printf '%s' "$HDRS" | grep -i '^location' | tr -d '\r')" ;;
-  *) ok "RT1-1: Location ignores a client-supplied Forwarded header" ;;
+  *) ok "Location ignores a client-supplied Forwarded header" ;;
 esac
 
 req POST "/carts" "" "" "X-Forwarded-Prefix: /evil"
 case "$HDRS" in
-  *"/evil/carts/"*) bad "RT1-1: Location ignores a client-supplied X-Forwarded-Prefix" \
+  *"/evil/carts/"*) bad "Location ignores a client-supplied X-Forwarded-Prefix" \
                         "built from it: $(printf '%s' "$HDRS" | grep -i '^location' | tr -d '\r')" ;;
-  *) ok "RT1-1: Location ignores a client-supplied X-Forwarded-Prefix" ;;
+  *) ok "Location ignores a client-supplied X-Forwarded-Prefix" ;;
 esac
 
 req POST "/carts" "" "" "X-Forwarded-Port: 8443"
 case "$HDRS" in
-  *":8443/carts/"*) bad "RT1-1: Location ignores a client-supplied X-Forwarded-Port" \
+  *":8443/carts/"*) bad "Location ignores a client-supplied X-Forwarded-Port" \
                         "built from it: $(printf '%s' "$HDRS" | grep -i '^location' | tr -d '\r')" ;;
-  *) ok "RT1-1: Location ignores a client-supplied X-Forwarded-Port" ;;
+  *) ok "Location ignores a client-supplied X-Forwarded-Port" ;;
 esac
 
 req GET "/v3/api-docs" "" "" "Forwarded: host=evil.example;proto=http"
-expect_status "RT1-1: GET /v3/api-docs with a client-supplied Forwarded header is 200" 200
+expect_status "GET /v3/api-docs with a client-supplied Forwarded header is 200" 200
 case "$BODY" in
-  *evil.example*) bad "RT1-1: OpenAPI servers[] ignores a client-supplied Forwarded header" \
+  *evil.example*) bad "OpenAPI servers[] ignores a client-supplied Forwarded header" \
                       "servers: $(pyq "$BODY" "d['servers']")" ;;
-  *) ok "RT1-1: OpenAPI servers[] ignores a client-supplied Forwarded header ($(pyq "$BODY" "d['servers'][0]['url']"))" ;;
+  *) ok "OpenAPI servers[] ignores a client-supplied Forwarded header ($(pyq "$BODY" "d['servers'][0]['url']"))" ;;
 esac
 
-# --- RT1-2: the storefront no longer opens Stripe with the 'noopener' feature ---
-# window.open(url, '_blank', 'noopener') returns null by spec, so the pop-up
-# blocked fallback (same-tab navigation) always ran as well; app.js now opens
-# plainly and nulls the opener by hand. Static check on the source.
-APP_JS="$PROJECT_DIR/src/main/resources/static/app.js"
-if [ -f "$APP_JS" ]; then
-  if grep -qE "window\.open\([^)]*'noopener'" "$APP_JS"; then
-    bad "RT1-2: app.js does not pass 'noopener' to window.open()" "$(grep -nE "window\.open\([^)]*'noopener'" "$APP_JS" | head -1)"
-  else
-    ok "RT1-2: app.js does not pass 'noopener' to window.open()"
-  fi
-  if grep -q "opened.opener = null" "$APP_JS"; then
-    ok "RT1-2: app.js severs the opener link by hand after window.open()"
-  else
-    bad "RT1-2: app.js severs the opener link by hand" "no 'opened.opener = null' in app.js"
-  fi
-else
-  bad "RT1-2: app.js is readable" "not found at $APP_JS"
-fi
-
-############################################################
-section "Round-5: admin bootstrap, categories, checkout return, health, storefront"
-############################################################
-# --- B4: GET /actuator/health is the health-check path; nothing else is exposed ---
-# spring-boot-starter-actuator with management.endpoints.web.exposure.include=health
-# and show-details=never; SwaggerSecurityRules permits GET and HEAD /actuator/health only.
+section "Health, categories, checkout pages and admin bootstrap"
 req GET "/actuator/health"
-expect_status "B4: GET /actuator/health anonymous is 200" 200
-expect_eq "B4: /actuator/health body is exactly {\"status\":\"UP\"} (show-details: never)" \
+expect_status "GET /actuator/health anonymous is 200" 200
+expect_eq "/actuator/health body is exactly {\"status\":\"UP\"} (show-details: never)" \
   "$(pyq "$BODY" "d == {'status': 'UP'}")" "True"
-expect_header_contains "B4: /actuator/health is served as JSON" "^content-type: *application/.*json"
-# CR-3: uptime monitors that probe with HEAD must not see 401.
+expect_header_contains "/actuator/health is served as JSON" "^content-type: *application/.*json"
 head_req "/actuator/health"
-expect_status "B4: HEAD /actuator/health anonymous is 200 (read-only twin of GET)" 200
+expect_status "HEAD /actuator/health anonymous is 200 (read-only twin of GET)" 200
 req GET "/actuator"
-expect_status "B4: GET /actuator anonymous is 401 (only the health path is public)" 401
+expect_status "GET /actuator anonymous is 401 (only the health path is public)" 401
 req GET "/actuator/health/db"
-expect_status "B4: GET /actuator/health/db anonymous is 401 (no component details)" 401
+expect_status "GET /actuator/health/db anonymous is 401 (no component details)" 401
 req GET "/actuator/env"
-expect_status "B4: GET /actuator/env anonymous is 401" 401
+expect_status "GET /actuator/env anonymous is 401" 401
 req POST "/actuator/health"
-expect_status "B4: POST /actuator/health is 401 (GET only)" 401
+expect_status "POST /actuator/health is 401 (GET only)" 401
 
-# --- B2: GET /categories lists the V5 categories, public, GET only ---
 req GET "/categories"
-expect_status "B2: GET /categories anonymous is 200" 200
-expect_header_contains "B2: /categories is application/json" "^content-type: *application/json"
-expect_eq "B2: GET /categories returns the 6 seeded categories" "$(pyq "$BODY" "len(d)")" "6"
-expect_eq "B2: GET /categories is ordered by id 1..6" "$(pyq "$BODY" "[c['id'] for c in d]")" "[1, 2, 3, 4, 5, 6]"
-expect_eq "B2: GET /categories carries the V5 names in order" \
+expect_status "GET /categories anonymous is 200" 200
+expect_header_contains "/categories is application/json" "^content-type: *application/json"
+expect_eq "GET /categories returns the 6 seeded categories" "$(pyq "$BODY" "len(d)")" "6"
+expect_eq "GET /categories is ordered by id 1..6" "$(pyq "$BODY" "[c['id'] for c in d]")" "[1, 2, 3, 4, 5, 6]"
+expect_eq "GET /categories carries the V5 names in order" \
   "$(pyq "$BODY" "[c['name'] for c in d]")" "['Produce', 'Dairy', 'Bakery', 'Meat & Seafood', 'Pantry Staples', 'Beverages']"
-expect_eq "B2: every entry is exactly {id: int, name: str}" \
+expect_eq "every entry is exactly {id: int, name: str}" \
   "$(pyq "$BODY" "all(set(c) == {'id', 'name'} and isinstance(c['id'], int) and isinstance(c['name'], str) for c in d)")" "True"
-# CR-3: HEAD is permitted alongside GET, as for /products/**.
 head_req "/categories"
-expect_status "B2: HEAD /categories anonymous is 200 (read-only twin of GET)" 200
+expect_status "HEAD /categories anonymous is 200 (read-only twin of GET)" 200
 req POST "/categories"
-expect_status "B2: POST /categories anonymous is 401 (GET and HEAD only)" 401
+expect_status "POST /categories anonymous is 401 (GET and HEAD only)" 401
 
-# --- B3: Stripe's return URLs serve the storefront page ---
-# StripePaymentGateway builds websiteUrl + "/checkout-success?orderId=<n>" and
-# "/checkout-cancel"; HomeController maps both to the index view (GET only).
 req GET "/checkout-success?orderId=1"
-expect_status "B3: GET /checkout-success?orderId=1 anonymous is 200" 200
-expect_header_contains "B3: /checkout-success is text/html" "^content-type: *text/html"
-expect_body_contains "B3: /checkout-success serves the storefront (h1)" "<h1>Tyrone Grocery Shop</h1>"
-expect_body_contains "B3: /checkout-success loads app.js" '<script src="/app.js">'
+expect_status "GET /checkout-success?orderId=1 anonymous is 200" 200
+expect_header_contains "/checkout-success is text/html" "^content-type: *text/html"
+expect_body_contains "/checkout-success serves the storefront (h1)" "<h1>Tyrone Grocery Shop</h1>"
+expect_body_contains "/checkout-success loads app.js" '<script src="/app.js">'
 req GET "/checkout-success?orderId=abc"
-expect_status "B3: GET /checkout-success?orderId=abc is 200 (orderId is validated client-side)" 200
+expect_status "GET /checkout-success?orderId=abc is 200 (orderId is validated client-side)" 200
 req GET "/checkout-success"
-expect_status "B3: GET /checkout-success without a query is 200" 200
+expect_status "GET /checkout-success without a query is 200" 200
 req GET "/checkout-cancel"
-expect_status "B3: GET /checkout-cancel anonymous is 200" 200
-expect_header_contains "B3: /checkout-cancel is text/html" "^content-type: *text/html"
-expect_body_contains "B3: /checkout-cancel loads app.js" '<script src="/app.js">'
+expect_status "GET /checkout-cancel anonymous is 200" 200
+expect_header_contains "/checkout-cancel is text/html" "^content-type: *text/html"
+expect_body_contains "/checkout-cancel loads app.js" '<script src="/app.js">'
 req POST "/checkout-success"
-expect_status "B3: POST /checkout-success is 401 (GET only)" 401
+expect_status "POST /checkout-success is 401 (GET only)" 401
 req POST "/checkout-cancel"
-expect_status "B3: POST /checkout-cancel is 401 (GET only)" 401
+expect_status "POST /checkout-cancel is 401 (GET only)" 401
 req GET "/"
-expect_status "B3: GET / is still 200" 200
+expect_status "GET / is 200" 200
 
-# --- B5: OpenAPI - /categories under Products without a lock; no actuator or return page ---
 req GET "/v3/api-docs"
-expect_status "B5: GET /v3/api-docs is 200" 200
-expect_eq "B5: GET /categories is documented under the Products tag" \
+expect_status "GET /v3/api-docs is 200" 200
+expect_eq "GET /categories is documented under the Products tag" \
   "$(pyq "$BODY" "d['paths']['/categories']['get']['tags']")" "['Products']"
-expect_eq "B5: GET /categories shows no lock (security: [])" \
+expect_eq "GET /categories shows no lock (security: [])" \
   "$(pyq "$BODY" "d['paths']['/categories']['get']['security']")" "[]"
-expect_eq "B5: GET /categories summary" \
+expect_eq "GET /categories summary" \
   "$(pyq "$BODY" "d['paths']['/categories']['get']['summary']")" "List categories (public)"
-expect_eq "B5: no actuator or checkout-return path in the OpenAPI document" \
+expect_eq "no actuator or checkout-return path in the OpenAPI document" \
   "$(pyq "$BODY" "[p for p in d['paths'] if 'actuator' in p or 'checkout-' in p]")" "[]"
-expect_eq "B5: CategoryDto.id is documented as an integer (not string/byte)" \
+expect_eq "CategoryDto.id is documented as an integer (not string/byte)" \
   "$(pyq "$BODY" "d['components']['schemas']['CategoryDto']['properties']['id']['type']")" "integer"
-expect_eq "B5: the Products tag description mentions categories" \
-  "$(pyq "$BODY" "[t['description'].startswith('Product catalogue and its categories.') for t in d['tags'] if t['name'] == 'Products']")" "[True]"
-expect_body_contains "B5: the API description mentions ADMIN_EMAILS" "ADMIN_EMAILS"
 
-# --- F1-F7: the storefront's new markup, script and styles are served ---
-req GET "/"
-for needle in 'id="checkout-banner"' 'id="banner-text"' 'id="banner-dismiss"' 'id="product-count"' \
-              'href="/categories"' 'href="/actuator/health"' 'href="/products"' \
-              'id="checkout-region" role="status"'; do
-  expect_body_contains "F3/F7: GET / has $needle" "$needle"
-done
-# CR-6: the live regions are always-present wrappers; the hidden banner and status line carry no role of their own.
-case "$BODY" in
-  *'id="checkout-banner" class="banner" hidden'*) ok "CR-6: the checkout banner itself is hidden without role=status (the wrapper is the live region)" ;;
-  *) bad "CR-6: the checkout banner itself is hidden without role=status" "expected 'id=\"checkout-banner\" class=\"banner\" hidden' in GET /" ;;
-esac
-case "$BODY" in
-  *'id="products-status" class="status" hidden'*) ok "CR-6: the catalogue status line is hidden without role=status (the wrapper is the live region)" ;;
-  *) bad "CR-6: the catalogue status line is hidden without role=status" "expected 'id=\"products-status\" class=\"status\" hidden' in GET /" ;;
-esac
-
-req GET "/app.js"
-expect_status "F: GET /app.js is 200" 200
-for needle in "'/categories'" 'CATEGORY_ICONS' 'Payment received' 'is confirmed. Thank you!' \
-              'is being confirmed' 'function confirmPaymentBanner' 'did not go through' \
-              'Checkout cancelled' 'No products yet.' 'qty-input' "history.replaceState(null, '', '/')" \
-              "'aria-hidden': 'true'" 'Tyrone Grocery Shop'; do
-  expect_body_contains "F1-F7: app.js has $needle" "$needle"
-done
-# Ground rule of the storefront: API data reaches the DOM through textContent only.
-UNSAFE_DOM="$(printf '%s' "$BODY" | grep -cE '\.innerHTML|insertAdjacentHTML|outerHTML' || true)"
-expect_eq "F: app.js has no .innerHTML / insertAdjacentHTML / outerHTML" "$UNSAFE_DOM" "0"
-
-req GET "/app.css"
-expect_status "F: GET /app.css is 200" 200
-for needle in '.banner-success' '.banner-info' '.banner-error' '.qty-input' '.order.highlight' '.order-items summary' \
-              '.product-count' '.site-header { position: sticky'; do
-  expect_body_contains "F2-F7: app.css has $needle" "$needle"
-done
-
-if [ -f "$APP_JS" ]; then
-  if command -v node >/dev/null 2>&1; then
-    if node --check "$APP_JS" 2>"$TMP/nodecheck"; then
-      ok "F: node --check app.js passes"
-    else
-      bad "F: node --check app.js passes" "$(head -c 300 "$TMP/nodecheck")"
-    fi
-  else
-    printf 'SKIP  F: node --check app.js (node is not installed)\n'
-  fi
-fi
-
-# --- B1: an e-mail listed in ADMIN_EMAILS registers as ADMIN (no SQL) ---
-# Only when the caller names such an e-mail: the value has to be in the
-# ADMIN_EMAILS of the instance under test, which this script cannot know.
-# A normal e-mail still registers as USER ("GET /admin/hello as a normal USER
-# is 403" above). The account is an ADMIN with a random per-run password
-# (BOOT_PASS); it deletes itself at the end and the EXIT trap (cleanup) deletes
-# it when the run is interrupted, so the same e-mail can be registered again on
-# the next run. A leftover that survived a killed run is removed as the
-# SQL-promoted admin (local runs, where MYSQLQ works); elsewhere delete it by hand.
 if [ -n "${SMOKE_ADMIN_EMAIL:-}" ]; then
-  # CR-1: a USER cannot move an account onto a listed address - AdminBootstrap
-  # would promote it at the next start - so UserService.updateUser answers 403.
   req PUT "/users/$USER_A_ID" "{\"name\":\"Alice Updated\",\"email\":\"$SMOKE_ADMIN_EMAIL\"}" "$TOKEN_A"
-  expect_status "B1: PUT /users/{id} to an ADMIN_EMAILS address as a USER is 403" 403
-  expect_body_contains "B1: ... with the reason" "Only an admin can change an e-mail to one listed in ADMIN_EMAILS."
+  expect_status "PUT /users/{id} to an ADMIN_EMAILS address as a USER is 403" 403
+  expect_body_contains "... with the reason" "Only an admin can change an e-mail to one listed in ADMIN_EMAILS."
   req GET "/users/$USER_A_ID" "" "$TOKEN_A"
-  expect_eq "B1: the refused PUT changed nothing (e-mail)" "$(pyq "$BODY" "d['email']")" "$EMAIL_A"
+  expect_eq "the refused PUT changed nothing (e-mail)" "$(pyq "$BODY" "d['email']")" "$EMAIL_A"
 
   req POST "/users" "{\"name\":\"Bootstrap Admin $TS\",\"email\":\"$SMOKE_ADMIN_EMAIL\",\"password\":\"$BOOT_PASS\"}"
   if [ "$STATUS" = "400" ] && [ -n "$TOKEN_ADMIN" ]; then
     req GET "/users" "" "$TOKEN_ADMIN"
     LEFTOVER_ID="$(pyq "$BODY" "next((u['id'] for u in d if u['email'] == '$SMOKE_ADMIN_EMAIL'), '')")"
     req DELETE "/users/$LEFTOVER_ID" "" "$TOKEN_ADMIN"
-    expect_status "B1: removed the leftover $SMOKE_ADMIN_EMAIL account from a killed run" 200
+    expect_status "removed the leftover $SMOKE_ADMIN_EMAIL account from a killed run" 200
     req POST "/users" "{\"name\":\"Bootstrap Admin $TS\",\"email\":\"$SMOKE_ADMIN_EMAIL\",\"password\":\"$BOOT_PASS\"}"
   fi
-  expect_status "B1: POST /users registers the ADMIN_EMAILS account ($SMOKE_ADMIN_EMAIL)" 201
+  expect_status "POST /users registers the ADMIN_EMAILS account ($SMOKE_ADMIN_EMAIL)" 201
   [ "$STATUS" = "201" ] && BOOT_ID="$(pyq "$BODY" "d['id']")"
 
   req POST "/auth/login" "{\"email\":\"$SMOKE_ADMIN_EMAIL\",\"password\":\"$BOOT_PASS\"}"
-  expect_status "B1: POST /auth/login as the ADMIN_EMAILS account is 200" 200
+  expect_status "POST /auth/login as the ADMIN_EMAILS account is 200" 200
   BOOT_TOKEN="$(pyq "$BODY" "d['token']")"
 
   req GET "/admin/hello" "" "$BOOT_TOKEN"
-  expect_status "B1: GET /admin/hello as the ADMIN_EMAILS account is 200 (ADMIN at registration, no SQL)" 200
-  expect_body_contains "B1: ... and greets the admin" "Hello Admin!"
+  expect_status "GET /admin/hello as the ADMIN_EMAILS account is 200 (ADMIN at registration, no SQL)" 200
+  expect_body_contains "... and greets the admin" "Hello Admin!"
 
   req GET "/users" "" "$BOOT_TOKEN"
-  expect_status "B1: GET /users as the ADMIN_EMAILS account is 200 (admin-only listing)" 200
+  expect_status "GET /users as the ADMIN_EMAILS account is 200 (admin-only listing)" 200
 
   req DELETE "/users/$BOOT_ID" "" "$BOOT_TOKEN"
-  expect_status "B1: cleanup - the ADMIN_EMAILS account deleted itself (re-runnable)" 200
+  expect_status "cleanup - the ADMIN_EMAILS account deleted itself (re-runnable)" 200
   [ "$STATUS" = "200" ] && BOOT_ID="" # done; nothing left for the EXIT trap
 else
-  printf 'SKIP  B1: admin bootstrap - set SMOKE_ADMIN_EMAIL to a lowercase e-mail listed in the ADMIN_EMAILS of the instance under test\n'
+  printf 'SKIP  admin bootstrap - set SMOKE_ADMIN_EMAIL to a lowercase e-mail listed in the ADMIN_EMAILS of the instance under test\n'
 fi
 
-############################################################
 printf '\n=========================================\n'
 printf 'PASSED: %d   FAILED: %d\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

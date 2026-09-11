@@ -5,7 +5,7 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 
-// Beyond the course (API docs): schema descriptions and examples for Swagger UI (named to avoid clashing with the catalogue ProductDto schema).
+// Explicit schema name so it does not clash with products.ProductDto in the OpenAPI docs.
 @Schema(name = "OrderProductDto", description = "Product summary inside an order item.")
 @Data
 public class ProductDto {

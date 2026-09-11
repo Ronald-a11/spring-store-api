@@ -7,7 +7,6 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
-// Beyond the course (API docs): schema descriptions and examples for Swagger UI.
 @Schema(description = "An order created by POST /checkout.")
 @Data
 public class OrderDto {

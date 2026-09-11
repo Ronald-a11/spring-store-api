@@ -6,7 +6,6 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
-// Beyond the course (API docs): schema descriptions and examples for Swagger UI.
 @Schema(description = "Body of POST /users.")
 @Data
 public class RegisterUserRequest {

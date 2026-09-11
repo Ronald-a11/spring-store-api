@@ -8,7 +8,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-// Beyond the course (API docs): schema descriptions and examples for Swagger UI.
 @Schema(description = "A shopping cart with its items and total.")
 @Data
 public class CartDto {

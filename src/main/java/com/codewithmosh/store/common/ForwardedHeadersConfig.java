@@ -20,18 +20,13 @@ import java.util.Enumeration;
 import java.util.Locale;
 import java.util.Set;
 
-// Fix beyond the course: server.forward-headers-strategy=framework (application-prod.yaml) makes Spring's
-// ForwardedHeaderFilter trust every forwarded header. Railway's edge overwrites X-Forwarded-Proto, -Host and -For,
-// but passes a client-supplied RFC 7239 "Forwarded", X-Forwarded-Port, X-Forwarded-Prefix or X-Forwarded-Ssl through
-// untouched, so any client could pick the scheme, host, port or path prefix of the absolute URLs the app builds
-// (OpenAPI servers[], swagger-config oauth2RedirectUrl, every 201 Location). This registers the filter in Boot's
-// place (same order and dispatcher types; Boot backs off via @ConditionalOnMissingFilterBean) with those four
-// headers hidden from it, so only the headers the proxy really sets are honoured.
+// The proxy overwrites X-Forwarded-Proto, -Host and -For but passes other forwarded headers through from the client.
+// This filter replaces the default ForwardedHeaderFilter and ignores those, so clients cannot spoof generated URLs.
 @Configuration
 @ConditionalOnProperty(value = "server.forward-headers-strategy", havingValue = "framework")
 public class ForwardedHeadersConfig {
 
-    /** Forwarded headers Railway's edge never sets, so they can only come from the client (lower case). */
+    /** Forwarded headers the proxy never sets, so they can only come from the client (lower case). */
     static final Set<String> UNTRUSTED_HEADERS = Set.of("forwarded", "x-forwarded-port", "x-forwarded-prefix", "x-forwarded-ssl");
 
     @Bean

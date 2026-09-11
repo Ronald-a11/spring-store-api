@@ -28,11 +28,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
-        // Fix beyond the course: strip only the "Bearer " prefix instead of replacing every occurrence.
         var token = authHeader.substring(7);
         var jwt = jwtService.parseToken(token);
-        // Fix beyond the course: only a token typed "access" authenticates; a refresh or untyped token is treated like an invalid one.
-        // Fix beyond the course: a signed token with malformed claims (non-string type, unknown role, non-numeric sub, no exp) is treated like an invalid one instead of crashing the filter with a 500.
+        // A signed token can still have malformed claims (e.g. an unknown role); treat it as invalid.
         UsernamePasswordAuthenticationToken authentication = null;
         try {
             if (jwt != null && !jwt.isExpired() && jwt.isAccessToken()) {

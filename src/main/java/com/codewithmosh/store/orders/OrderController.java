@@ -18,7 +18,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-// Beyond the course (API docs): tag, summaries, responses and parameter descriptions for Swagger UI.
 @Tag(name = "Orders")
 @AllArgsConstructor
 @RestController
@@ -58,7 +57,7 @@ public class OrderController {
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorDto> handleAccessDenied(Exception ex) {
-        // Fix beyond the course: preset application/json so the error body is written even when Accept excludes JSON (it used to end as a 500).
+        // Set the content type explicitly so the body is written even when Accept excludes JSON.
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
                 .contentType(MediaType.APPLICATION_JSON)

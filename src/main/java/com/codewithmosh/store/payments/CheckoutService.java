@@ -13,7 +13,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-// Fix beyond the course: logger for the webhook warnings in handleWebhookEvent.
 @Slf4j
 @RequiredArgsConstructor
 @Service
@@ -56,7 +55,7 @@ public class CheckoutService {
         paymentGateway
             .parseWebhookRequest(request)
             .ifPresent(paymentResult -> {
-                // Fix beyond the course: ignore unknown or already-settled orders so Stripe gets a 200 and stops retrying.
+                // Ignore unknown or already-settled orders so Stripe gets a 200 and stops retrying.
                 var order = orderRepository.findById(paymentResult.getOrderId()).orElse(null);
                 if (order == null) {
                     log.warn("Ignoring webhook event for unknown order {}", paymentResult.getOrderId());

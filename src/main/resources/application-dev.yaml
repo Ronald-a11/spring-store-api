@@ -1,13 +1,11 @@
 spring:
   datasource:
-    # Fix beyond the course: the course hardcodes localhost:3306, which on this machine is a
-    # different MySQL service that must not be touched. The dev database is the
-    # store-mysql Docker container on 3307 (see README and .env.example).
     url: ${DB_URL:jdbc:mysql://localhost:3307/store_api?createDatabaseIfNotExist=true}
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:MyPassword!}
+  docker:
+    compose:
+      lifecycle-management: start-only
   jpa:
     show-sql: true
-# Fix beyond the course: the course pointed Stripe's success/cancel return URLs (StripePaymentGateway) at a separate
-# front end on :4242; the storefront is served by this app, so the default is its own origin. WEBSITE_URL overrides it.
 websiteUrl: ${WEBSITE_URL:http://localhost:8080}

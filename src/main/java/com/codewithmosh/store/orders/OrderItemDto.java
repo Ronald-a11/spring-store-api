@@ -5,7 +5,6 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 
-// Beyond the course (API docs): schema descriptions and examples for Swagger UI.
 @Schema(description = "A product line in an order.")
 @Data
 public class OrderItemDto {

@@ -3,8 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <!-- Fix beyond the course: the home page is a small storefront (static/app.css + static/app.js) that drives the API from a browser;
-         the template is static HTML only - the page is filled in by /app.js from the JSON endpoints. -->
     <title>Tyrone Grocery Shop</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='8' fill='%232e7d32'/><text x='4' y='12' font-size='11' font-family='sans-serif' font-weight='bold' fill='white'>T</text></svg>">
     <link rel="stylesheet" href="/app.css">
@@ -13,10 +11,9 @@
 <header class="site-header">
     <div class="brand">
         <h1>Tyrone Grocery Shop</h1>
-        <p class="tagline">Fresh groceries online — browse, fill your cart, sign in and check out.</p>
+        <p class="tagline">Fresh groceries online. Browse, fill your cart and check out.</p>
     </div>
     <div class="toolbar">
-        <!-- Fix beyond the course: F7 product count ("10 products", "3 of 10 products" while filtering), filled in by app.js. -->
         <span id="product-count" class="product-count" role="status"></span>
         <input id="search" type="search" placeholder="Search products" aria-label="Search products by name" autocomplete="off">
         <div id="auth-area" class="auth-area">
@@ -31,10 +28,6 @@
     </div>
 </header>
 
-<!-- Fix beyond the course: F3 checkout return - Stripe sends the customer back to /checkout-success?orderId=<n> or
-     /checkout-cancel (both serve this page); app.js fills this banner in from the URL and then rewrites it back to "/".
-     The live region (role="status") is the always-present wrapper, not the hidden banner: assistive technology announces
-     changes inside a region that is already in the accessibility tree, not text a region already holds when it appears. -->
 <div id="checkout-region" role="status">
     <div id="checkout-banner" class="banner" hidden>
         <p id="banner-text" class="banner-text"></p>
@@ -47,7 +40,6 @@
 <main class="layout">
     <section class="catalogue" aria-labelledby="catalogue-heading">
         <h2 id="catalogue-heading" class="visually-hidden">Products</h2>
-        <!-- Fix beyond the course: the same always-present live-region wrapper as the checkout banner, so a retry's status is announced. -->
         <div role="status">
             <p id="products-status" class="status" hidden></p>
         </div>
@@ -90,7 +82,6 @@
     </section>
 </main>
 
-<!-- Fix beyond the course: F7 footer links to every public JSON endpoint next to the docs. -->
 <footer class="site-footer">
     <a href="/swagger-ui/index.html">API docs (Swagger UI)</a>
     <span aria-hidden="true">&middot;</span>

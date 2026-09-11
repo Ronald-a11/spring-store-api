@@ -4,7 +4,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
-// Beyond the course (API docs): schema description and example for Swagger UI.
 @Schema(description = "Response of POST /auth/login and POST /auth/refresh.")
 @Data
 @AllArgsConstructor

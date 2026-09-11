@@ -1,4 +1,4 @@
-/* Tyrone Grocery Shop - storefront styles. Light theme, system font, no framework. */
+/* Tyrone Grocery Shop storefront */
 
 :root {
   --bg: #f6f7f4;
@@ -31,7 +31,7 @@ h3 { font-size: 1rem; }
 a { color: var(--accent-dark); }
 .muted { color: var(--muted); }
 .small-text { font-size: 0.85rem; }
-/* A long word without spaces (a product name typed that way) wraps instead of forcing the page to scroll sideways. */
+/* Long unbroken words wrap instead of widening the page. */
 .card h3, .card .desc, .cart-item, .order, .toast, .user-chip { overflow-wrap: anywhere; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -56,9 +56,8 @@ button.small { padding: 0.25rem 0.6rem; font-size: 0.85rem; }
 button.link { background: none; border: 0; color: var(--accent-dark); padding: 0; text-decoration: underline; }
 button.chip { background: var(--surface); color: var(--text); border-color: var(--line); border-radius: 999px; padding: 0.3rem 0.85rem; }
 button.chip[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
-/* Fix beyond the course: F2 chip labels come from the API, so a long name wraps inside the chip instead of widening the page. */
+/* Long category names wrap inside the chip. */
 button.chip { white-space: normal; overflow-wrap: anywhere; max-width: 100%; text-align: left; }
-.icon { display: inline-block; }
 button.qty { padding: 0 0.55rem; min-width: 1.8rem; line-height: 1.6; }
 
 /* Inputs */
@@ -82,7 +81,6 @@ label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; 
 .tagline { margin: 0; color: var(--muted); font-size: 0.9rem; }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
 .toolbar input[type="search"] { width: 220px; }
-/* Fix beyond the course: F7 product count in the toolbar. */
 .product-count { color: var(--muted); font-size: 0.9rem; white-space: nowrap; }
 .auth-area { display: flex; align-items: center; gap: 0.5rem; }
 .user-chip { display: inline-flex; align-items: center; gap: 0.5rem; }
@@ -95,7 +93,7 @@ label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; 
 .badge.status-pending { background: #fff3d6; color: var(--warn); }
 .badge.status-failed, .badge.status-canceled { background: #fbeeed; color: var(--danger); }
 
-/* Fix beyond the course: F3 checkout-return banner (success = green, cancel = amber, failed payment = red), dismissable. */
+/* Checkout banner */
 .banner {
   display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem;
   margin: 1rem 1.5rem 0; padding: 0.75rem 1rem; border: 1px solid var(--line); border-radius: var(--radius);
@@ -116,8 +114,7 @@ label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; 
   grid-template-areas: "catalogue cart" "orders cart" "admin cart";
 }
 .catalogue { grid-area: catalogue; }
-/* Fix beyond the course: F7 the header is sticky on wide screens (see the media query below), so the sticky cart
-   panel sits under it: --header-h is the header's rendered height, published by app.js. */
+/* --header-h is set by app.js so the cart panel sticks below the header. */
 .cart-panel { grid-area: cart; position: sticky; top: calc(var(--header-h, 0px) + 1rem); }
 .orders { grid-area: orders; }
 .admin { grid-area: admin; }
@@ -134,7 +131,6 @@ label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; 
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
 }
 .card .category { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.card .category .icon { font-size: 1rem; letter-spacing: 0; vertical-align: -0.1em; } /* F2: the emoji keeps its size */
 .card .desc { margin: 0; color: var(--muted); flex: 1; font-size: 0.9rem; }
 .product-grid .empty { grid-column: 1 / -1; margin: 0; }
 .card .card-footer { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
@@ -146,7 +142,6 @@ label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; 
 .cart-item { display: grid; grid-template-columns: 1fr auto; gap: 0.25rem 0.75rem; padding-bottom: 0.6rem; border-bottom: 1px solid var(--line); }
 .cart-item .line-total { font-weight: 600; text-align: right; }
 .cart-item .controls { display: flex; align-items: center; gap: 0.35rem; grid-column: 1 / -1; }
-/* Fix beyond the course: F5 editable quantity box between the +/- buttons ("1000" must fit). */
 .cart-item .qty-input { width: 4.5rem; padding: 0.25rem 0.35rem; text-align: center; }
 .cart-item .qty-input[aria-busy="true"] { opacity: 0.6; }
 .cart-item .unit { font-size: 0.85rem; color: var(--muted); }
@@ -162,7 +157,6 @@ label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; 
 .order-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
 .order-head .total { margin-left: auto; font-weight: 600; }
 .order ul { margin: 0.5rem 0 0; padding-left: 1.2rem; color: var(--muted); font-size: 0.9rem; }
-/* Fix beyond the course: F4 items fold behind a <details>; the order from the checkout-success URL is highlighted. */
 .order-items { margin-top: 0.5rem; }
 .order-items summary { cursor: pointer; color: var(--accent-dark); font-size: 0.9rem; }
 .order.highlight { border-color: var(--accent); box-shadow: 0 0 0 2px #bcd6bd; }
@@ -183,13 +177,13 @@ label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; 
 .toast-success { background: var(--accent-dark); }
 .toast-error { background: var(--danger); }
 
-/* Fix beyond the course: F7 sticky header on wide screens only (on a phone it would eat too much of the viewport). */
+/* Sticky header on wide screens only */
 @media (min-width: 901px) {
   .site-header { position: sticky; top: 0; z-index: 5; }
 }
 
 @media (max-width: 900px) {
-  /* minmax(0, 1fr), not 1fr: a bare 1fr is minmax(auto, 1fr) and cannot shrink below its longest word. */
+  /* minmax(0, 1fr) lets the column shrink below its longest word. */
   .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "catalogue" "cart" "orders" "admin"; }
   .cart-panel { position: static; }
   .toolbar input[type="search"] { width: 100%; }

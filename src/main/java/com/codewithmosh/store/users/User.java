@@ -57,7 +57,6 @@ public class User {
         joinColumns = @JoinColumn(name = "user_id"),
         inverseJoinColumns = @JoinColumn(name = "product_id")
     )
-    // Fix beyond the course: keep the initializer when built via the builder (matches addresses; removes the Lombok warning).
     @Builder.Default
     private Set<Product> favoriteProducts = new HashSet<>();
 
@@ -72,6 +71,4 @@ public class User {
                 "name = " + name + ", " +
                 "email = " + email + ")";
     }
-
-
 }

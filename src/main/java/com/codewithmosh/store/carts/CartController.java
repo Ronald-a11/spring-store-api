@@ -23,7 +23,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.util.Map;
 import java.util.UUID;
 
-// Beyond the course (API docs): tag, summaries, responses and parameter descriptions for Swagger UI.
 @Tag(name = "Carts")
 @AllArgsConstructor
 @RestController
@@ -63,7 +62,6 @@ public class CartController {
     @PostMapping("/{cartId}/items")
     public ResponseEntity<CartItemDto> addToCart(
         @Parameter(description = "Cart UUID returned by POST /carts.", example = "7c9e6679-7425-40de-944b-e07fc1f90ae7") @PathVariable UUID cartId,
-        // Fix beyond the course: validate the request body (same pattern as updateItem).
         @Valid @RequestBody AddItemToCartRequest request) {
         var cartItemDto = cartService.addToCart(cartId, request.getProductId());
 
@@ -139,13 +137,12 @@ public class CartController {
 
     @ExceptionHandler(CartNotFoundException.class)
     public ResponseEntity<Map<String, String>> handleCartNotFound() {
-        // Fix beyond the course: preset application/json so the error body is written even when Accept excludes JSON (it used to end as a 500).
+        // Set the content type explicitly so the body is written even when Accept excludes JSON.
         return ResponseEntity.status(HttpStatus.NOT_FOUND).contentType(MediaType.APPLICATION_JSON).body(Map.of("error", "Cart not found."));
     }
 
     @ExceptionHandler(ProductNotFoundException.class)
     public ResponseEntity<Map<String, String>> handleProductNotFound() {
-        // Fix beyond the course: preset application/json so the error body is written even when Accept excludes JSON (it used to end as a 500).
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON).body(Map.of("error", "Product not found."));
     }
 }

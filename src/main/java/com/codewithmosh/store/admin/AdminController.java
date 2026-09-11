@@ -12,7 +12,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-// Beyond the course (API docs): tag, summary and responses for Swagger UI.
 @Tag(name = "Admin")
 @RestController
 @RequestMapping("/admin")

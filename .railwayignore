@@ -4,7 +4,6 @@ target/
 .git/
 .github/
 
-.claude/
 .idea/
 .run/
 .vscode/

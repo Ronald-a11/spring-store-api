@@ -10,14 +10,12 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 
-// Beyond the course (API docs): schema descriptions and examples for Swagger UI.
 @Schema(description = "A catalogue product; also the body of POST /products and PUT /products/{id}.")
 @Data
 public class ProductDto {
     @Schema(description = "Product ID, assigned by the server and ignored in request bodies.", example = "1", accessMode = Schema.AccessMode.READ_ONLY)
     private Long id;
 
-    // Fix beyond the course: validate product input on POST/PUT (the controller uses @Valid).
     @Schema(description = "Product name, at most 255 characters.", example = "Bananas")
     @NotBlank(message = "Name is required.")
     @Size(max = 255, message = "Name must be less than 255 characters.")
@@ -33,7 +31,7 @@ public class ProductDto {
     @NotBlank(message = "Description is required.")
     private String description;
 
-    // implementation = Integer.class: springdoc would otherwise document the Byte as string($byte); a plain type = "integer" is ignored for properties in OpenAPI 3.1 mode.
+    // Without this, springdoc documents the Byte as a string.
     @Schema(implementation = Integer.class, description = "ID of an existing category; the seed data has 1 Produce, 2 Dairy, 3 Bakery, 4 Meat & Seafood, 5 Pantry Staples, 6 Beverages.", example = "1")
     @NotNull(message = "Category ID is required.")
     private Byte categoryId;

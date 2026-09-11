@@ -1,317 +1,113 @@
-# Spring Boot: Mastering REST API Development
+# Tyrone Grocery Shop API
 
-This repository contains the **completed code** for [Part 2 of my Spring Boot course](https://codewithmosh.com/p/spring-boot-building-apis).
+A REST API for a small online grocery store, built with Spring Boot while following Mosh Hamedani's
+[Spring Boot: Mastering REST API Development](https://codewithmosh.com/p/spring-boot-building-apis) course.
+It covers products, anonymous shopping carts, users with JWT authentication, Stripe checkout and order history.
+A simple storefront is served at `/` and the API is documented with Swagger UI.
 
-In this project, we build the backend for an e-commerce application using Spring Boot. The API includes endpoints for:
+Live demo: <https://store-api-production-de54.up.railway.app>
+([Swagger UI](https://store-api-production-de54.up.railway.app/swagger-ui/index.html))
 
-- Managing products
-- Managing shopping carts
-- Checking out
-- Viewing order history
+## Tech stack
 
----
+- Java 25, Spring Boot 3.5 (Web, Security, Data JPA, Validation, Actuator)
+- MySQL 8.4 with Flyway migrations
+- JWT authentication (jjwt)
+- Stripe Checkout
+- MapStruct and Lombok
+- springdoc-openapi for Swagger UI
+- Plain HTML, CSS and JavaScript for the storefront
 
-## 🚀 Getting Started
+## Getting started
 
-### 1. Clone the Repository
+### Prerequisites
 
-```bash
-git clone https://github.com/mosh-hamedani/spring-api-finished.git
-cd spring-api-finished
-```
+- JDK 25
+- Maven 3.9+ (or the included Maven wrapper)
+- Docker Desktop, running
 
-### 2. Configure Environment Variables
-- Rename the ``.env.example`` file to ``.env``. 
-- Update the following environment variables inside .env: 
+### Configuration
 
-#### JWT_SECRET
-
-Generate a secure random key using:
+Copy `.env.example` to `.env` and set `JWT_SECRET`. You can generate one with:
 
 ```bash
 openssl rand -base64 32
 ```
 
-If ``openssl`` is not available, go to [generate-random.org](https://generate-random.org), click on **Strings > API Tokens**, and generate a secure token.
-
-#### STRIPE_SECRET_KEY
-
-- Create a free account at [stripe.com](https://stripe.com)
-- On your dashboard, go to **Developers > API Keys**. You can use the search bar for quick access.
-- Copy the value of the **Secret Key**.
-
-#### STRIPE_WEBHOOK_SECRET_KEY
-
-- Install the Stripe CLI: https://docs.stripe.com/stripe-cli
-- Login and start the webhook listener:
-
-```bash
-stripe login
-stripe listen --forward-to http://localhost:8080/checkout/webhook
-```
-- Copy the **signing secret** from the terminal output and use it as the value for ``STRIPE_WEBHOOK_SECRET_KEY``.
-
----
-
-## ▶️ Running the Project
-
-This is a Maven project. To start the application, run:
-
-```bash
-./mvnw spring-boot:run
-```
-
-If you're on Windows:
-
-```bash
-mvnw.cmd spring-boot:run
-```
-
-Once running, the application will be available at:
-
-```arduino
-http://localhost:8080
-```
-
----
-
-## 📚 API Documentation
-
-Swagger UI is available at:
-
-```bash
-http://localhost:8080/swagger-ui.html
-```
-
----
-
-## 🧪 Example API Flow
-
-Here's a sample flow to help you understand how to interact with the API after starting the application.
-
-### 1. Get All Products 
-
-```bash
-GET /products
-```
-
-The database is automatically populated with 10 sample products using a Flyway migration script.
-
-### 2. Create a Shopping Cart 
-
-```bash
-POST /carts
-```
-
-This will return the cart ID. You don't need to be logged in to create a cart.
-
-### 3. Add Items to Cart 
-
-Once you have a cart ID, you can add products to it by sending:
-
-```bash
-POST /carts/{cartId}/items
-```
-
-**Request body example**:
-```json
-{
-  "productId": 1
-}
-```
-
-### 4. Register a New User 
-To check out, you have to register and login first: 
-
-```bash
-POST /users
-```
-
-**Request body**:
-
-```json
-{
-  "name": "John Doe",
-  "email": "john@example.com",
-  "password": "123456"
-}
-```
-
-### 5. Login to Get an Access Token 
-
-```bash
-POST /auth/login 
-```
-
-**Request body**:
-```json
-{
-  "email": "john@example.com",
-  "password": "123456"
-}
-```
-
-**Response body**:
-```json
-{
-  "token": "your-json-web-token"
-}
-```
-
-### 6. Checkout 
-
-```bash
-POST /checkout 
-```
-
-**Headers**
-```bash
-Authorization: Bearer your-json-web-token
-```
-
-**Request body**
-```json
-{
-  "cartId": "your-cart-id"
-}
-```
-
-This endpoint returns a Stripe checkout URL. Open it in your browser to complete the payment using a test card:
-
-```yaml
-Card: 4242 4242 4242 4242
-Expiry: Any future date
-CVC: Any 3 digits
-```
-
-### 7. Webhook & Order Status Update
-
-Once payment is completed, Stripe will trigger a webhook call to:
-
-```bash
-POST /checkout/webhook 
-```
-
-Our backend listens for this event and updates the order status in the database accordingly.
-
----
-
-## 🧠 Learn More
-Want to learn how this project was built step by step?
-
-Check out the full course here: [Spring Boot: Mastering REST API Development](https://codewithmosh.com/p/spring-boot-building-apis)
-
----
-
-## Running on this machine
-
-This clone differs from the course code in a few places. Everything below is local setup only — the API itself is unchanged.
-
-### Toolchain
-
-Built with **Java 25** (JDK 25.0.4) and **Spring Boot 3.5.16** instead of the course's Java 17 and Boot 3.4.1. Dependencies bumped to versions that work on Java 25:
-
-| Dependency | Course | Here |
+| Variable | Required | Description |
 | --- | --- | --- |
-| Spring Boot parent | 3.4.1 | 3.5.16 |
-| Java | 17 | 25 |
-| Lombok | Boot-managed | 1.18.48 (+ `lombok-mapstruct-binding` 0.2.0) |
-| MapStruct | 1.6.2 / 1.6.3 | 1.6.3 |
-| jjwt-jackson | 0.12.5 | 0.12.6 |
-| springdoc-openapi | 2.8.6 | 2.8.17 |
-| stripe-java | 29.0.0 | 33.4.2 |
+| `JWT_SECRET` | Yes | Key used to sign tokens, at least 32 bytes. The app won't start without it. |
+| `STRIPE_SECRET_KEY` | No | Stripe secret key. Until it's set, `POST /checkout` returns an error. |
+| `STRIPE_WEBHOOK_SECRET_KEY` | No | Signing secret for Stripe webhooks. |
+| `ADMIN_EMAILS` | No | Comma-separated e-mails that get the `ADMIN` role. |
+| `WEBSITE_URL` | No | Where Stripe redirects after checkout. Defaults to `http://localhost:8080`. |
 
-Flyway and Spring Security come from the Boot parent.
-
-### Database
-
-The course connects to a local MySQL on port **3306** as `root` / `MyPassword!`. The MySQL Windows service on this machine has a different root password, so the dev database runs in Docker instead:
-
-```bash
-docker start store-mysql
-```
-
-That container is MySQL 8.4.11, published on host port **3307**, database `store_api`.
-
-`application-dev.yaml` reads the connection from `DB_URL`, `DB_USERNAME` and `DB_PASSWORD`. `.env.example` already carries the Docker container's values, so renaming it to `.env` (step 2 above) gives you a working database connection — `JWT_SECRET` must still be filled in (see [Stripe keys are optional](#stripe-keys-are-optional) below):
-
-```
-DB_URL=jdbc:mysql://localhost:3307/store_api?createDatabaseIfNotExist=true
-DB_USERNAME=root
-DB_PASSWORD=MyPassword!
-```
-
-`.env.example` also lists two optional keys: `ADMIN_EMAILS`, the comma-separated e-mails
-that get the `ADMIN` role (see [Making an admin](#making-an-admin)), and `WEBSITE_URL`, the
-origin Stripe returns the customer to after checkout (the dev default is
-`http://localhost:8080`; leave the key commented out rather than empty).
-
-If those variables are unset, `application-dev.yaml` falls back to the same 3307 container
-rather than the course's 3306, so no code path on this machine can reach the MySQL Windows
-service.
-
-Flyway applies `V1`–`V6` on startup.
-
-### Stripe keys are optional
-
-`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET_KEY` default to empty, so the app starts without a Stripe account. Until `STRIPE_SECRET_KEY` is set in `.env`, `POST /checkout` returns the course's payment error. `JWT_SECRET` is still required — generate one with `openssl rand -base64 32`.
-
-### Run it
+### Run
 
 ```bash
 mvn spring-boot:run
 ```
 
-or, using the wrapper on Windows:
+Spring Boot starts the MySQL container defined in `compose.yaml` (`store-mysql`, port 3307), Flyway creates the
+schema and sample data, and the app starts on <http://localhost:8080>. The database keeps running after you stop
+the app; stop it with `docker compose stop`.
+
+Without Maven installed, use the wrapper: `./mvnw spring-boot:run`, or `mvnw.cmd spring-boot:run` on Windows.
+
+- Storefront: <http://localhost:8080>
+- Swagger UI: <http://localhost:8080/swagger-ui/index.html>
+- Health check: <http://localhost:8080/actuator/health>
+
+### Tests
 
 ```bash
-mvnw.cmd spring-boot:run
+mvn verify
 ```
 
-Swagger UI: <http://localhost:8080/swagger-ui.html>
+`scripts/smoke-test.sh` runs end-to-end checks against a running instance. It needs curl, Python and Docker.
 
-`mvn clean verify` (or `mvn clean package`) also needs the container running: the only
-test is a `@SpringBootTest` context load, which opens a real connection and runs Flyway.
-Start it first with `docker start store-mysql`, or the build fails on the datasource.
-The test supplies its own throw-away `spring.jwt.secret`, so it needs neither `.env` nor a
-`JWT_SECRET` in the environment (the startup check would otherwise fail the context load).
+```bash
+BASE_URL=http://localhost:8080 bash scripts/smoke-test.sh
+```
 
-The `flyway-maven-plugin` block in `pom.xml` is pointed at port **3307** as well, so an
-explicit `mvn flyway:info` / `flyway:migrate` targets the Docker container and never the
-MySQL Windows service on 3306. Boot runs Flyway at startup, so those goals are not
-normally needed. The course's `<version>10.15.0</version>` pin was dropped: Boot 3.5.16
-puts flyway-core 11.7.2 on the plugin's class realm, and a Flyway 10 plugin loaded next to
-a Flyway 11 core fails with `IncompatibleClassChangeError` before it reaches a database.
-Without the pin the plugin resolves to the Boot-managed 11.7.x and matches the runtime.
+## API overview
 
-Note that the course's `<cleanDisabled>false</cleanDisabled>` is kept, so `mvn flyway:clean`
-really will drop every object in `store_api` on the container. Only the container — never
-3306 — but it is destructive; don't run it unless that is what you want.
+| Endpoint | Access |
+| --- | --- |
+| `GET /products`, `GET /products/{id}`, `GET /categories` | Public |
+| `POST /products`, `PUT /products/{id}`, `DELETE /products/{id}` | Admin |
+| `POST /carts`, `GET /carts/{cartId}` | Public |
+| `POST /carts/{cartId}/items`, `PUT` and `DELETE /carts/{cartId}/items/{productId}`, `DELETE /carts/{cartId}/items` | Public |
+| `POST /users` | Public |
+| `GET /users` | Admin |
+| `GET`, `PUT` and `DELETE /users/{id}`, `POST /users/{id}/change-password` | Owner or admin |
+| `POST /auth/login`, `POST /auth/refresh` | Public |
+| `GET /auth/me`, `POST /checkout`, `GET /orders`, `GET /orders/{orderId}` | Logged in |
+| `POST /checkout/webhook` | Called by Stripe |
 
-### Making an admin
+Log in with `POST /auth/login` and send the returned token as `Authorization: Bearer <token>`. Access tokens
+expire after 15 minutes; `POST /auth/refresh` issues a new one using the refresh token cookie.
 
-Register the account first (`POST /users` or the storefront's *Register*), then put its
-e-mail in `ADMIN_EMAILS` (`.env` locally, a service variable on Railway; comma-separated,
-case-insensitive, trimmed) and restart or redeploy: `AdminBootstrap` promotes listed
-accounts once the application is ready and logs `ADMIN_EMAILS lists N e-mail(s); promoted M
-existing user(s) to ADMIN: [...]` at `INFO` (a lookup or save that fails is logged at
-`ERROR` and skipped rather than ending the start-up; an empty or unset variable is a no-op).
-A listed e-mail that has no account is named at `WARN` — `ADMIN_EMAILS entry <e-mail> has no
-account yet; whoever registers it becomes ADMIN` — because the `INFO` line alone reads the
-same (`promoted 0`) whether every listed account is already `ADMIN` or does not exist yet.
-Log in again afterwards — the role is baked into the access token.
+## Stripe
 
-That order matters. There is no e-mail verification, so a listed e-mail that has no
-account yet goes to whoever registers it — an e-mail on the list registers straight with
-the `ADMIN` role — and on a public host that is a race against anyone who knows or guesses
-the address (the git history shows the commit author's). Once the real account exists the
-`UNIQUE` index on `users.email` closes that door, and a `USER` cannot move an account onto
-a listed address either: `PUT /users/{id}` answers `403 {"error": "Only an admin can change
-an e-mail to one listed in ADMIN_EMAILS."}`. Take an e-mail off the list when its account
-is deleted or renamed, for the same reason.
+Checkout uses Stripe in test mode. Put your test secret key in `STRIPE_SECRET_KEY`, then forward webhooks to the
+local app with the [Stripe CLI](https://docs.stripe.com/stripe-cli):
 
-The course's way still works: register through `POST /users`, then promote the account
-in the Docker database:
+```bash
+stripe login
+stripe listen --forward-to http://localhost:8080/checkout/webhook
+```
+
+Copy the signing secret it prints into `STRIPE_WEBHOOK_SECRET_KEY`. Pay with the test card `4242 4242 4242 4242`,
+any future expiry date and any CVC. The order changes from `PENDING` to `PAID` when the webhook arrives.
+
+## Making an admin
+
+Register the account, add its e-mail to `ADMIN_EMAILS` and restart the app. Listed accounts are promoted at
+startup, and you need to log in again because the role is part of the token. Register before you add the e-mail:
+there is no e-mail verification, so whoever registers a listed address first gets the role.
+
+You can also promote a user in the database:
 
 ```bash
 docker exec -it store-mysql mysql -uroot -p store_api
@@ -321,200 +117,28 @@ docker exec -it store-mysql mysql -uroot -p store_api
 UPDATE users SET role = 'ADMIN' WHERE email = 'you@example.com';
 ```
 
-## Using the storefront
-
-The home page (<http://localhost:8080/>) is **Tyrone Grocery Shop**, a small storefront built from
-`templates/index.html`, `static/app.css` and `static/app.js` — vanilla HTML, CSS and ES2020,
-no framework, no build step. It only calls the JSON API on the same origin, so everything it
-does can also be done from Swagger UI or curl:
-
-1. **Browse.** `GET /products` fills the grid; the search box filters by name and the
-   category chips (one per category from `GET /categories`, each with an icon; the `V5`
-   names in `app.js` are only the fallback when that request fails) filter by `categoryId`.
-   The toolbar shows the product count (*10 products*, *3 of 10 products* while filtering).
-2. **Cart.** The first *Add to cart* creates an anonymous cart (`POST /carts`) and keeps its
-   UUID in `localStorage`; the +/−, *Remove* and *Clear* controls map to the
-   `/carts/{cartId}/items` endpoints, and the quantity box between +/− takes a typed value
-   (clamped to 1..1000 and sent with `PUT /carts/{cartId}/items/{productId}` 300 ms after
-   the last keystroke; a digit typed while that request is in flight survives the cart's
-   re-render). A stale UUID (unknown cart, `404`) or a stored value
-   that is not a UUID at all (`400`) is dropped and a new cart is created on the next add.
-3. **Register / log in.** The dialog posts to `POST /users` and `POST /auth/login`; the access
-   token is kept in `localStorage` and its payload is decoded only to show your name and role.
-   Tokens last 15 minutes: any `401` on an authenticated call ends the session with
-   *Session expired, please log in again*.
-4. **Checkout.** *Checkout* is enabled once you are logged in and the cart is not empty; it
-   posts `{cartId}` to `POST /checkout` and opens the returned Stripe URL in a new tab (in the
-   same tab when the browser blocks the pop-up). Without a `STRIPE_SECRET_KEY` the API answers `500 {"error": "Error creating a checkout session"}`
-   (and deletes the order), which the page shows as *The payment provider could not create a
-   checkout session (Stripe is not configured on this demo) — the order was not created.*
-   Any other `500` is shown with the server's own message. With Stripe configured, Stripe
-   sends you back to `/checkout-success?orderId=<n>` or `/checkout-cancel` — both serve this
-   page — where a dismissable banner says *your payment is being confirmed* (and highlights
-   that order in *My orders*) or says the cart is still there, and the URL is rewritten back
-   to `/`. The order is `PENDING` until Stripe's webhook reaches `POST /checkout/webhook`, so
-   the banner only turns into *Payment received — order #<n> is confirmed* once `GET /orders`
-   reports it `PAID`, or into the red *Payment for order #<n> did not go through — see My
-   orders.* when it reports `FAILED`/`CANCELED` (a `payment_intent.payment_failed` webhook — a
-   delayed-notification method such as ACH or SEPA is only submitted, not settled, when Stripe
-   sends you back); without `STRIPE_WEBHOOK_SECRET_KEY` it stays *being confirmed*.
-5. **My orders.** Visible when logged in; lists `GET /orders` newest first with a coloured
-   status badge (`PENDING` amber, `PAID` green, `FAILED`/`CANCELED` red), the local date,
-   the total and the items folded behind *N items*.
-6. **Admin.** When the token's role is `ADMIN` the page shows an *add product* form
-   (`POST /products`, categories from `GET /categories`) and a *Delete* button on every
-   product card (`DELETE /products/{id}`; a product that belongs to an order answers `409`).
-   To become an admin, register, then list your e-mail in `ADMIN_EMAILS` and restart (or run
-   the SQL `UPDATE`) as in [Making an admin](#making-an-admin) and log in again.
-
-If the first request takes more than two seconds (a sleeping demo host), the page shows
-*Waking up the server…* until `GET /products` answers; when that request fails the reason
-is shown with a *Retry* button, and an empty catalogue says *No products yet*. The footer
-links to Swagger UI and the raw `/products`, `/categories` and `/actuator/health` JSON.
-
----
-
-## Fixes beyond the course
-
-This port is byte-identical to Mosh's finished code except for the stack bumps listed
-under [Toolchain](#toolchain) and the fixes below. Every deviation is marked in the source
-with a one-line comment starting with `// Fix beyond the course:` (`-- ` in SQL, `# ` in
-YAML, `<!-- -->` in XML and HTML, `/* */` in CSS), so `grep -r "Fix beyond the course"`
-lists them all.
-
-| Area | Change | Why |
-| --- | --- | --- |
-| Users | `POST /users/{id}/change-password` now hashes the new password with the same `PasswordEncoder` used at registration | The course stored the new password in plaintext; the account was locked out because login compares against a BCrypt hash |
-| Users | `UNIQUE` index on `users.email` (migration `V6`), duplicate check on `PUT /users/{id}`, and registration and update catch the constraint violation | Two registrations racing on the same email both succeeded and the second could not log in; an update could take over another user's email |
-| Users | `/users/{id}` endpoints are owner-or-admin, `GET`/`HEAD /users` are admin-only; a foreign id returns `403 {"error": "You don't have access to this user."}` | Any authenticated user could read, edit and delete any other user; Spring MVC serves `HEAD` through the `GET` handler, so a `GET`-only rule let a normal user run the list query with `HEAD` |
-| Users | `UpdateUserRequest` is validated and partial updates keep the existing fields | A body with only `name` blanked out the email (and vice-versa); malformed values were written as-is |
-| Auth | Access tokens carry `type=access` and refresh tokens `type=refresh`; the filter only authenticates a token typed `access` and `/auth/refresh` only accepts a token typed `refresh`. Tokens minted by a build without the claim are rejected — log in again once | A 7-day refresh token could be sent as a Bearer header and used as a 7-day access token; a negative "not a refresh token" check would still have accepted an untyped token from an older build |
-| Auth | `POST /auth/refresh` with a refresh token whose user no longer exists returns `401` | The course's `orElseThrow()` threw `NoSuchElementException` for a deleted user; with error dispatch permitted that became `500 {"error": "Unexpected error."}` plus a stack trace for a normal client condition |
-| Auth | Error dispatch (`/error`) is permitted, so real errors return `400`/`405`/`406`/`409`/`415`/`500` with an `{"error": ...}` body | Every server-side failure surfaced as a blank `401` because the security filter intercepted the forward to `/error` |
-| Common | The feature-level error handlers (`{"error": ...}` bodies in the cart, user, order and checkout controllers) and the global `409` preset `Content-Type: application/json` | With an `Accept` header that excludes JSON (`text/html`, `application/xml`) the handler's body could not be written, the original exception fell through to `/error` and the client got a `500` Whitelabel page instead of the intended `400`/`403`/`404`/`409` |
-| Auth | `403` responses carry a JSON `{"error": ...}` body, served as `application/json;charset=UTF-8` | Forbidden requests returned an empty body, unlike every other error in the API; without an explicit character encoding Tomcat labelled the body `charset=ISO-8859-1` |
-| Auth | `Authorization: Bearer` header is parsed with `substring` instead of `replace` | `replace` stripped every occurrence of `Bearer ` and accepted `Bearer Bearer <token>` |
-| Auth | `HEAD /products` is permitted alongside `GET` | Health checks and proxies that send `HEAD` got `401` for a public endpoint |
-| Auth | Swagger UI has an **Authorize** button (`bearerAuth` security scheme) | Protected endpoints could not be tried from `/swagger-ui.html` without a browser extension |
-| Products | `POST /products` and `PUT /products/{id}` are validated; deleting a product that belongs to an order returns `409` | Empty names and negative prices were stored; deleting an ordered product hit the foreign key and came back as a blank `401` |
-| Products | `POST /products` ignores an `id` in the request body | MapStruct copied the id into the new entity and `save()` merged it into the existing row, so an admin could overwrite a catalogue product and still get `201 Created` |
-| Carts | `POST /carts/{cartId}/items` validates `productId` | A missing or null `productId` reached the repository and became a `500` (surfacing as a blank `401`) |
-| Carts | `@Max` message typo fixed on `UpdateCartItemRequest.quantity` | The validation message did not match the rule it enforced |
-| Payments | Webhook: missing `Stripe-Signature` header returns `400`; malformed `order_id` metadata and unknown orders are handled without crashing; only `PENDING` orders transition | A request without the header threw and became a blank `401`; a bad metadata value crashed the handler; an order already `PAID` or `FAILED` took whatever status a late or replayed event carried |
-| Payments | `WARN` logged at startup when `STRIPE_SECRET_KEY` is blank | The app started silently with Stripe unconfigured and only failed at the first checkout |
-| Users | `@Builder.Default` on `User.favoriteProducts` | Lombok's builder ignored the field initialiser, so `User.builder().build()` had a `null` set and `addFavoriteProduct` threw `NullPointerException` |
-| Common | `GET /` and `HEAD /` are public and the home page links to Swagger UI and `/products` | No security rule permitted `/`, so opening the root URL in a browser returned a blank `401` and looked like the app was down; `HEAD /` (the health-check path on Railway) still answered `401` to probes that send `HEAD` |
-| Common | `server.forward-headers-strategy: framework` in `application-prod.yaml`, so absolute URLs honour the proxy's `X-Forwarded-Proto`/`Host`; `ForwardedHeadersConfig` registers the filter in Boot's place with the client-controllable `Forwarded`, `X-Forwarded-Port`, `X-Forwarded-Prefix` and `X-Forwarded-Ssl` headers hidden from it | Behind Railway's TLS-terminating edge the app saw plain `http` requests: the OpenAPI document advertised an `http://` server, so **Try it out** in the `https` Swagger UI was blocked as mixed content, and the `201` `Location` headers of `POST /users`, `/carts` and `/products` pointed at `http://`. Railway overwrites only `X-Forwarded-Proto`/`Host`/`For`, so with the stock filter any client could choose the scheme, host, port or path prefix of the OpenAPI `servers` URL, the swagger-config redirect URL and every `201 Location` by sending the other four headers |
-| Auth | The app refuses to start when `JWT_SECRET` is blank or shorter than 32 bytes (256 bits); the value is never logged | A blank secret booted a "healthy" app in which every `POST /auth/login` returned `401` (`WeakKeyException` at the first login), so a deployment health check could not tell |
-| Docs | Swagger UI documents every endpoint: tags, summaries, status codes, examples; Authorize persists across reloads; public endpoints show no lock | The course strips its OpenAPI annotations at the end, so the generated docs listed bare paths with no explanation, and with the global `bearerAuth` requirement every operation showed a lock — public ones included |
-| Web UI | The home page is a small storefront (vanilla HTML/JS) that uses the public and authenticated endpoints; Swagger UI stays at `/swagger-ui/index.html`. `GET /app.js`, `/app.css` and `/favicon.ico` are permitted (GET only) so the assets load anonymously | The root URL only said "the API is running"; the storefront exercises the whole flow — browse, cart, register, log in, check out, order history, admin product management — from a browser without Swagger or curl (see [Using the storefront](#using-the-storefront)) |
-| Users | `ADMIN_EMAILS` environment variable (`admin.emails`; comma-separated, trimmed, case-insensitive): a listed e-mail registers with the `ADMIN` role, and `AdminBootstrap` promotes listed accounts that already exist once the application is ready (`INFO` log with the count and e-mails; a listed e-mail with no account is logged at `WARN`, since `promoted 0` alone cannot tell "already `ADMIN`" from "not registered yet"; an empty variable is a no-op; a lookup or save that fails is logged at `ERROR` and skipped instead of ending the start-up). The role takes effect at the next login. Because nothing verifies e-mail ownership, the documented order is register first, then list; and `PUT /users/{id}` refuses to move a `USER`'s account onto a listed address (`403 {"error": "Only an admin can change an e-mail to one listed in ADMIN_EMAILS."}`), which `AdminBootstrap` would otherwise promote at the next start | The course grants `ADMIN` only with `UPDATE users SET role = 'ADMIN' WHERE email = '...'` in a database client, which a Railway deployment has no convenient access to; the first admin can now be created by registering and setting one service variable. An exception from the ready-event listener would close the context and take down an otherwise healthy deployment |
-| Products | `GET /categories` (public, `GET` and `HEAD` only) returns `[{"id": 1, "name": "Produce"}, ...]` ordered by id (`CategoryRepository.findAll(Sort)`), documented under **Products** in Swagger UI | `GET /products` only carries a `categoryId`, so a client had to hard-code the seeded category names; the storefront's filter chips and admin form now read them from the API; `HEAD` is the read-only twin of `GET` here as for `/products/**` |
-| Payments | `GET /checkout-success` and `GET /checkout-cancel` (public, `GET` only) serve the storefront page; `websiteUrl`, the origin Stripe redirects back to, is `${WEBSITE_URL:...}` in both profiles and the dev default is `http://localhost:8080` (the course had `http://localhost:4242`); a trailing slash on the value is stripped before the return URLs are built | Stripe sends the customer to `websiteUrl + "/checkout-success?orderId=<n>"` or `/checkout-cancel`, which the course never mapped, so a paying customer landed on a blank `401`; the dev default pointed at a front end that does not exist here and the prod value could only be changed by rebuilding the image. `WEBSITE_URL=https://host/` would have produced `https://host//checkout-success`, which Spring Security's firewall rejects with `400` |
-| Common | `spring-boot-starter-actuator` with only `health` exposed and `show-details: never`; `GET /actuator/health` is public (`HEAD` too, for monitors that probe with it), everything else under `/actuator` stays `401`; `railway.json` health-checks `/actuator/health` | Railway health-checked `GET /`, a Thymeleaf page that renders even when the database is unreachable; `/actuator/health` answers `200 {"status":"UP"}` only while the MySQL connection works and `503 {"status":"DOWN"}` otherwise (Boot's default status mapping), and the exposure is limited so no environment, bean or mapping details leak |
-| Web UI | Category chips and the admin *Category* select are built from `GET /categories` (one chip per category, label = `name`, in id order, plus any `categoryId` the catalogue uses that the list does not know), each with a decorative emoji (`aria-hidden`) that is also shown on the product cards; the seed id→name map in `app.js` is now only the fallback when that request fails | The page hard-coded the `V5` category names, so a category added or renamed in the database showed as *Category 7*; the icons make the chips and cards scannable |
-| Web UI | `/checkout-success?orderId=<n>` and `/checkout-cancel` (served as the storefront page) show a dismissable banner — *Thanks — your payment is being confirmed; order #<n> will show as PAID in My orders.* (amber), which becomes *Payment received — order #<n> is confirmed. Thank you!* (green) once `GET /orders` reports that order `PAID`, or *Payment for order #<n> did not go through — see My orders.* (red) once it reports `FAILED`/`CANCELED` / *Checkout cancelled — your cart is still here.* — highlight and expand that order in *My orders* when logged in, and rewrite the URL back to `/` with `history.replaceState` so a reload does not repeat it; `orderId` is only used when it is all digits. The banner and the catalogue status line sit inside always-present `role="status"` wrappers | Stripe sends the customer back to those URLs after paying or backing out; before, they landed on a bare `401`/`404` with no confirmation that the payment went through. The order only becomes `PAID` when the `payment_intent.succeeded` webhook arrives, so a banner that said *confirmed* straight from the URL contradicted the `PENDING` badge under it while the webhook was late (or, without `STRIPE_WEBHOOK_SECRET_KEY`, for good), and a `payment_intent.payment_failed` webhook (a delayed-notification method such as ACH or SEPA fails after Stripe has already sent the customer back) left the amber *will show as PAID* banner above a red `FAILED` badge. A `hidden` element that is unhidden with its text already in it is not announced by screen readers; changes inside a live region that is already in the accessibility tree are |
-| Web UI | *My orders* lists newest first (`createdAt`, then id) with a coloured status badge (`PENDING` amber, `PAID` green, `FAILED`/`CANCELED` red), the local date (`toLocaleString`) and the items folded behind a `<details>` | A long order history was one flat wall of list items |
-| Web UI | The cart quantity is an editable `<input type="number" min="1" max="1000">` between the +/− buttons: typing is debounced 300 ms, leaving the box commits at once, the value is clamped to 1..1000 before `PUT /carts/{cartId}/items/{productId}`, and the box keeps focus, the value being typed and its pending commit while the cart re-renders | Going from 1 to 24 took 23 clicks, and the API's `@Max(1000)` answered `400` for anything typed above it; a digit typed while the previous commit's round-trip was in flight was wiped by the re-render, and the detached box's timer still fired |
-| Web UI | Empty and error states: an empty catalogue says *No products yet*, a search or filter with no hits says *No products match*, and an unreachable API on the first load shows the reason with a *Retry* button (the *Waking up the server…* hint after 2 s stays) | A blank grid could mean loading, empty or broken |
-| Web UI | Sticky header on wide screens (the sticky cart panel is offset by the header's measured height), a product count in the toolbar (*10 products*, *3 of 10 products* while filtering), footer links to Swagger UI, `/products`, `/categories` and `/actuator/health`, and the *Log in / Register* dialog closes on Escape (explicit handler next to the native cancel) and returns focus to the button that opened it | Small usability gaps that showed as soon as the catalogue grew past one screen; keyboard users lost their place after closing the dialog |
-
-### Still as in the course (known limitations)
-
-These are unchanged because the course does not address them and fixing them would change the API's shape:
-
-- **Carts are anonymous.** The cart UUID is the only credential; anyone who knows it can read and change the cart.
-- **Access tokens outlive the user.** A deleted or demoted user's access token stays valid until it expires (15 minutes) — the JWT is stateless and nothing checks the database on each request. (The refresh token of a deleted user is rejected with `401`, see the table above, so no new access token can be minted for it.)
-- **Concurrent adds to one cart can collide.** Two simultaneous `POST /carts/{cartId}/items` for the same product may both try to insert the same row; the loser now gets a `409` instead of a blank `401`, but there is no retry.
-- **Webhook has no idempotency or amount check.** A replayed `payment_intent.succeeded` event is processed again, and the paid amount is never compared with the order total.
-- **`refreshToken` cookie has no `SameSite` attribute.** The course sets `HttpOnly`, `Secure` and `Path=/auth/refresh` only.
-- **`mvn flyway:clean` is enabled** (`cleanDisabled=false`, the course default) and drops every object in the Docker dev database `store_api`.
-- **Stripe API version.** stripe-java 33.4.2 pins Stripe API version `2026-08-26.dahlia`. If the Stripe account or webhook endpoint is on another version, the webhook payload deserialises to nothing and orders stay `PENDING` — the Stripe CLI (`stripe listen`) uses the account's default version, so check it under **Developers > API version**.
-
----
-
 ## Deploying to Railway
 
-The repo ships a multi-stage `Dockerfile` (JDK 25 + Maven wrapper build stage, JRE 25
-runtime, non-root user, both base images pinned by digest so a rebuild cannot silently
-change the JDK, and the build stage pins the SHA-256 of the Maven distribution the
-wrapper downloads, so a tampered download fails the build) and a `railway.json` that
-asks Railway to build from the `Dockerfile`, health-check `GET /actuator/health` (300 s) and
-restart on failure with 5 retries — on the CLI-uploaded deployments Railway has not applied the file:
-the deployment metadata records no config file at all (`fileServiceManifest` is empty,
-checked on two uploads, although the file is valid JSON, committed and excluded by neither
-`.railwayignore` nor `.gitignore`), so no healthcheck step runs and the restart limit is
-Railway's default 10. Set the health check (path `/actuator/health`, 300 s) and the restart
-policy under service **Settings → Deploy**; alternatively point **Settings → Config-as-code → Config file
-path** at `railway.json` and confirm on the next `railway up` that the deployment shows a
-healthcheck step.
+The `Dockerfile` builds the app, and the image runs with the `prod` profile.
 
-Create a Railway project from this GitHub repo (Railway builds `main`, so the `Dockerfile`,
-`railway.json` and `.railwayignore` must be committed there) — or deploy from the CLI:
-run `railway init` or `railway link` **in this directory first** and pass
-`--service store-api` to every `railway up`, `railway variable set` and `railway domain`,
-because the CLI otherwise falls back to the nearest linked parent folder, which may belong
-to another project; `.railwayignore` keeps `.env`, `target/` and `.git/` out of the upload.
-The live service is **not** connected to GitHub: every deployment is an upload from this
-directory with `railway up --service store-api` (Railway records the CLI caller, no repo or
-commit), so pushing to `main` does not redeploy — run `railway up` after each change. To
-have Railway build `main` instead, connect the service to the repo under service
-**Settings → Source**. Either way, add a **MySQL** service next to it, and set these
-variables on the API service:
+1. Create a Railway project with a MySQL service and a service for the app.
+2. Set these variables on the app service:
 
-| Variable | Value |
-| --- | --- |
-| `SPRING_PROFILES_ACTIVE` | `prod` — already the image default (`ENV` in the `Dockerfile`), so setting it on the service is optional but harmless |
-| `SPRING_DATASOURCE_URL` | `jdbc:mysql://<host>:<port>/<database>` built from the MySQL service's `MYSQLHOST`, `MYSQLPORT` and `MYSQLDATABASE` (reference them as `${{MySQL.MYSQLHOST}}` etc.) |
-| `SPRING_DATASOURCE_USERNAME` | the MySQL service's `MYSQLUSER` |
-| `SPRING_DATASOURCE_PASSWORD` | the MySQL service's `MYSQLPASSWORD` |
-| `JWT_SECRET` | `openssl rand -base64 32` (or `openssl rand -hex 64`; any value of at least 32 bytes) — required; the app refuses to start when it is blank or too short, so a forgotten value fails the health check instead of producing a deployment that cannot log anyone in |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET_KEY` | optional; leave unset until Stripe is wired up (checkout returns the payment error, startup logs a `WARN`) |
-| `ADMIN_EMAILS` | optional; comma-separated e-mails (case-insensitive) that are promoted to `ADMIN` at start-up when the account already exists (and register with the role when it does not) — the way to get the first admin without a database client. Register the account first, then set the variable and redeploy: a listed e-mail with no account goes to whoever registers it and is named at `WARN` in the start-up log (see [Making an admin](#making-an-admin)). The role takes effect at the next login |
-| `WEBSITE_URL` | `https://<the service's public domain>`, without a trailing slash (one is stripped anyway) — the origin Stripe sends the customer back to after checkout (`/checkout-success?orderId=<n>` and `/checkout-cancel`, both served by the storefront); optional, but without it `application-prod.yaml` falls back to the course's `https://mystore.com` placeholder |
-| `JAVA_OPTS` | optional; the image defaults to `-XX:MaxRAMPercentage=50 -XX:+ExitOnOutOfMemoryError` — the heap is capped at 50% of the service's memory limit (512 MiB at 1 GB; the live heap is ~40 MiB) and an `OutOfMemoryError` exits the JVM so the `ON_FAILURE` restart policy replaces it. 50% rather than 75% because the JVM's non-heap footprint is ~290 MiB: a 768 MiB heap could grow past a 1 GiB limit and be OOM-killed by the kernel (exit 137) before an `OutOfMemoryError` is thrown |
+   | Variable | Value |
+   | --- | --- |
+   | `SPRING_DATASOURCE_URL` | `jdbc:mysql://${{MySQL.MYSQLHOST}}:${{MySQL.MYSQLPORT}}/${{MySQL.MYSQLDATABASE}}` |
+   | `SPRING_DATASOURCE_USERNAME` | `${{MySQL.MYSQLUSER}}` |
+   | `SPRING_DATASOURCE_PASSWORD` | `${{MySQL.MYSQLPASSWORD}}` |
+   | `JWT_SECRET` | output of `openssl rand -base64 32` |
+   | `WEBSITE_URL` | the service's public URL, without a trailing slash |
+   | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET_KEY`, `ADMIN_EMAILS` | optional |
 
-`PORT` is set to `8080` on the live service, the same value the entrypoint falls back to
-(`--server.port=${PORT:-8080}`; Spring Boot does not read `PORT` by itself) and the port the
-public domain targets; Railway injects `PORT` on its own, so the variable is optional — if
-you keep it, it must match the domain's target port (service **Settings → Networking**).
-Flyway applies `V1`–`V6` to the Railway database on the first start, and the health check is
-`GET /actuator/health`, which is public (`HEAD` as well) and answers `200 {"status":"UP"}` only while the
-MySQL connection works (`503 {"status":"DOWN"}` otherwise; nothing else under `/actuator` is
-exposed, and `GET /` / `HEAD /` stay public too). `websiteUrl` in `application-prod.yaml` is
-`${WEBSITE_URL:https://mystore.com}`, so with `WEBSITE_URL` set to the public origin Stripe
-returns the customer to
-https://store-api-production-de54.up.railway.app/checkout-success?orderId=<n> (or
-`/checkout-cancel`), both served by the storefront. Railway terminates TLS at its edge and forwards plain HTTP, so
-`application-prod.yaml` sets `server.forward-headers-strategy: framework`: the app honours
-`X-Forwarded-Proto`/`Host` and the OpenAPI `servers` entry and every `Location` header use
-`https://` (without it Swagger UI's **Try it out** targets `http://` and the browser blocks
-the mixed-content requests). Exactly three forwarded headers are trusted — `X-Forwarded-Proto`,
-`X-Forwarded-Host` and `X-Forwarded-For`, the ones Railway's edge overwrites on every request.
-The edge passes a client-supplied `Forwarded`, `X-Forwarded-Port`, `X-Forwarded-Prefix` or
-`X-Forwarded-Ssl` through untouched, so `ForwardedHeadersConfig` hides those four from Spring's
-`ForwardedHeaderFilter`: a request carrying `Forwarded: host=evil.example` still gets a
-`Location` on the real host (`scripts/smoke-test.sh` checks this).
+3. Deploy from the project folder:
 
-Set an explicit **memory limit** on the API service (service **Settings → Resource
-limits**; 1 GB is plenty): the JVM sizes its heap from the container's cgroup limit, and
-without a per-service limit that is the plan maximum, so RAM — which Railway bills per
-GB — is otherwise unbounded. The entrypoint `exec`s `java`, so it runs as PID 1 and receives
-the `SIGTERM` Railway sends on stop and redeploy; Spring Boot's graceful shutdown (the
-default since 3.4) then finishes in-flight requests before the container exits instead of
-the JVM being killed after the grace period.
+   ```bash
+   railway link
+   railway up --service store-api
+   ```
 
-Swagger UI (`/swagger-ui/index.html`) and the OpenAPI document (`/v3/api-docs`) stay public
-in prod on purpose — this is a portfolio API. To hide them, add
-`springdoc.api-docs.enabled: false` and `springdoc.swagger-ui.enabled: false` to
-`application-prod.yaml`.
-
-A clean prod start logs no `ERROR` lines and exactly these `WARN` lines, all harmless:
-Flyway "MySQL 9.4 is newer than this version of Flyway" (the Railway MySQL service runs the
-`mysql:9.4` image), `StripeConfig` "STRIPE_SECRET_KEY
-is not set" (until Stripe is configured), "Global AuthenticationManager configured with an
-AuthenticationProvider bean", "spring.jpa.open-in-view is enabled by default", and the two
-SpringDoc notices that `/v3/api-docs` and `/swagger-ui.html` are enabled in production.
-
-Live: https://store-api-production-de54.up.railway.app — Swagger UI at
-https://store-api-production-de54.up.railway.app/swagger-ui/index.html
+Railway doesn't apply `railway.json` to CLI uploads, so set the health check path (`/actuator/health`) and a
+memory limit (1 GB is plenty) in the service settings.

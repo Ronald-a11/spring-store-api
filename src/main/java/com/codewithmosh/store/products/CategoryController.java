@@ -17,9 +17,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-// Fix beyond the course: the course has no category endpoint, so a client (the storefront's filter chips and its
-// admin form) had to hard-code the seeded category names; this lists them. Public, GET only (ProductSecurityRules).
-// Beyond the course (API docs): tag, summary and responses for Swagger UI.
 @Tag(name = "Products")
 @AllArgsConstructor
 @RestController
